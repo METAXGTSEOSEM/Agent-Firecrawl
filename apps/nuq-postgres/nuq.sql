@@ -291,12 +291,13 @@ SELECT cron.schedule('nuq_group_crawl_finished', '15 seconds', $$
   FROM finished_groups;
 $$);
 
--- Batched group cleanup: cap each run at 10000 groups to keep the cascading
+-- Batched group cleanup: cap each run at 2000 groups to keep the cascading
 -- deletes (queue_scrape, queue_scrape_backlog, queue_crawl_finished) bounded
--- and stop them from outrunning the 5min schedule. With p95 ~23 jobs/group
--- this caps a run at ~230k row deletes; max-case (8495 jobs/group) is rare
--- enough that statement_timeout=4min is the backstop. SKIP LOCKED keeps
--- overlapping runs from blocking each other if a slot ever runs long.
+-- and stop them from outrunning the 5min schedule. Steady state arrival is
+-- ~1600 groups/tick, so 2000 leaves headroom while keeping worst-case row
+-- counts safe even when one of the heavy team's outlier groups (max 8495
+-- jobs vs p50 9) lands in the batch. statement_timeout=4min is the backstop.
+-- SKIP LOCKED keeps overlapping runs from blocking each other.
 SELECT cron.schedule('nuq_group_crawl_clean', '*/5 * * * *', $$
   SET statement_timeout = '4min';
   WITH victims AS (
@@ -304,7 +305,7 @@ SELECT cron.schedule('nuq_group_crawl_clean', '*/5 * * * *', $$
     WHERE status = 'completed'::nuq.group_status
       AND expires_at < now()
     ORDER BY expires_at
-    LIMIT 10000
+    LIMIT 2000
     FOR UPDATE SKIP LOCKED
   ), cleaned_groups AS (
     DELETE FROM nuq.group_crawl
