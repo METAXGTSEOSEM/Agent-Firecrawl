@@ -46,19 +46,36 @@ const DEPRECATIONS = {
 
 type DeprecationKey = keyof typeof DEPRECATIONS;
 
+// RFC 7234 quoted-string: escape backslash and double quote.
+function quoteWarningText(s: string): string {
+  return `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
 export function deprecationMiddleware(key: DeprecationKey) {
   const dep: Deprecation = DEPRECATIONS[key];
   return (req: Request, res: Response, next: NextFunction) => {
+    // RFC 9745 Deprecation header.
     res.setHeader("Deprecation", "true");
+    // RFC 8594 Sunset header.
     if (dep.sunset) res.setHeader("Sunset", dep.sunset);
-    if (dep.docs) res.setHeader("Link", `<${dep.docs}>; rel="deprecation"`);
+
+    // RFC 8288 Link relations: "deprecation" (RFC 9745) for docs, and
+    // "successor-version" (RFC 5829) for the replacement endpoint.
+    const links: string[] = [];
+    if (dep.docs) links.push(`<${dep.docs}>; rel="deprecation"`);
+    if (dep.replacement) {
+      links.push(`<${dep.replacement}>; rel="successor-version"`);
+    }
+    if (links.length > 0) res.setHeader("Link", links.join(", "));
+
+    // RFC 7234 Warning header, code 299 = "Miscellaneous Persistent Warning".
+    res.setHeader("Warning", `299 - ${quoteWarningText(dep.message)}`);
 
     const originalJson = res.json.bind(res);
     res.json = (body: any) => {
       if (body && typeof body === "object" && !Array.isArray(body)) {
-        body.warning = body.warning
-          ? `${dep.message} (${body.warning})`
-          : dep.message;
+        const existing = Array.isArray(body.warnings) ? body.warnings : [];
+        body.warnings = [...existing, dep.message];
         if (dep.replacement && body.replacement === undefined) {
           body.replacement = dep.replacement;
         }
