@@ -14,7 +14,7 @@ import { isUrlBlocked } from "../scraper/WebScraper/utils/blocklist";
 const creditsPerPDFPage = 1;
 const stealthProxyCostBonus = 4;
 const unblockedDomainCostBonus = 4;
-const xTwitterCostBonus = 9;
+const xTwitterCostBonus = 29;
 const redactPIICostBonus = 4;
 // Each additional PDF page also gets redacted through fire-privacy, so
 // the per-page surcharge mirrors the +4 base — same tier as lockdown.
