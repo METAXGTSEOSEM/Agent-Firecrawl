@@ -1111,6 +1111,8 @@ export type Document = {
   markdown?: string;
   html?: string;
   rawHtml?: string;
+  extractionQuality?: number;
+  pageType?: string;
   links?: string[];
   images?: string[];
   screenshot?: string;
