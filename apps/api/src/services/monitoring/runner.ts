@@ -621,6 +621,7 @@ async function sendNotifications(params: {
         url: page.url,
         status: page.status,
         error: page.error,
+        judgment: page.judgment ?? null,
       })),
   });
 

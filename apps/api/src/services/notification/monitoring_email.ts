@@ -11,6 +11,12 @@ type MonitoringEmailPage = {
   url: string;
   status: string;
   error?: string | null;
+  judgment?: {
+    meaningful: boolean;
+    confidence: "high" | "medium" | "low";
+    reason: string;
+    fields: string[];
+  } | null;
 };
 
 export type MonitoringEmailPayload = {
@@ -78,21 +84,47 @@ export function buildMonitoringCheckDashboardUrl(
 }
 
 export function buildHtml(payload: MonitoringEmailPayload): string {
-  const pageItems = payload.pages
+  // Sort meaningful pages first so the alert leads with what mattered.
+  const sortedPages = [...payload.pages].sort((a, b) => {
+    const aMeaningful = a.judgment?.meaningful === true ? 0 : 1;
+    const bMeaningful = b.judgment?.meaningful === true ? 0 : 1;
+    return aMeaningful - bMeaningful;
+  });
+
+  const pageItems = sortedPages
     .slice(0, 20)
     .map(page => {
       const url = escapeHtml(page.url);
-      return `<li><strong>${escapeHtml(page.status)}</strong>: <a href="${url}">${url}</a>${
+      let badge = "";
+      let reason = "";
+      if (page.judgment) {
+        if (page.judgment.meaningful) {
+          badge = ' <span style="color:#b45309;font-weight:600">[meaningful]</span>';
+        } else {
+          badge = ' <span style="color:#6b7280">[noise]</span>';
+        }
+        reason = `<br/><small style="color:#6b7280">${escapeHtml(page.judgment.reason)}</small>`;
+      }
+      return `<li><strong>${escapeHtml(page.status)}</strong>${badge}: <a href="${url}">${url}</a>${
         page.error ? ` &mdash; ${escapeHtml(page.error)}` : ""
-      }</li>`;
+      }${reason}</li>`;
     })
     .join("");
   const dashboardUrl = escapeHtml(payload.dashboardUrl);
 
+  // When the judge ran, surface the meaningful/noise split in the summary.
+  const judgedPages = payload.pages.filter(p => p.judgment);
+  const meaningfulCount = judgedPages.filter(p => p.judgment!.meaningful).length;
+  const noiseCount = judgedPages.length - meaningfulCount;
+  const changedLine =
+    judgedPages.length > 0
+      ? `Changed: ${payload.summary.changed} (${meaningfulCount} meaningful, ${noiseCount} noise)`
+      : `Changed: ${payload.summary.changed}`;
+
   return `Hey there,<br/>
 <p>Your Firecrawl monitor <strong>${escapeHtml(payload.monitorName)}</strong> detected activity.</p>
 <ul>
-  <li>Changed: ${payload.summary.changed}</li>
+  <li>${changedLine}</li>
   <li>New: ${payload.summary.new}</li>
   <li>Removed: ${payload.summary.removed}</li>
   <li>Errors: ${payload.summary.error}</li>
@@ -143,6 +175,33 @@ export async function sendMonitoringEmailSummary(params: {
       errors: params.check.error_count,
     });
     return { attempted: false, success: true, recipients: [] };
+  }
+
+  // When the monitor has a goal set, the AI judge has classified each
+  // changed page as meaningful or noise. Only fire the email if at least
+  // one changed page was judged meaningful (or has new/removed/error
+  // status, which always count regardless of judgment).
+  if (params.monitor.goal) {
+    const changedPages = params.pages.filter(p => p.status === "changed");
+    const nonChangedActivity = params.pages.some(
+      p => p.status === "new" || p.status === "removed" || p.status === "error",
+    );
+    if (changedPages.length > 0 && !nonChangedActivity) {
+      const anyMeaningful = changedPages.some(
+        p => p.judgment?.meaningful === true || !p.judgment,
+      );
+      if (!anyMeaningful) {
+        logger.info(
+          "Skipping monitoring email summary; all changed pages judged noise",
+          {
+            monitorId: params.monitor.id,
+            checkId: params.check.id,
+            changedCount: changedPages.length,
+          },
+        );
+        return { attempted: false, success: true, recipients: [] };
+      }
+    }
   }
 
   const explicitRecipients = configEmail.recipients ?? [];
