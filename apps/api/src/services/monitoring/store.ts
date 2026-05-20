@@ -1,7 +1,11 @@
 import { createHash } from "crypto";
 import { v7 as uuidv7 } from "uuid";
 import { supabase_rr_service, supabase_service } from "../supabase";
-import { getNextMonitorRunAt, estimateRunsPerMonth } from "./cron";
+import {
+  getNextMonitorRunAt,
+  estimateRunsPerMonth,
+  validateMonitorCron,
+} from "./cron";
 import type {
   CreateMonitorRequest,
   MonitorCheckPageInsert,
@@ -197,28 +201,46 @@ export async function updateMonitor(params: {
   if (params.input.targets !== undefined) {
     patch.targets = ensureTargetIds(params.input.targets);
   }
-  // Re-estimate when any input that drives the cost changed.
-  const costInputsChanged =
-    params.input.targets !== undefined ||
-    params.input.judgeEnabled !== undefined ||
-    params.input.goal !== undefined;
-  if (costInputsChanged && params.intervalMs !== undefined) {
-    const targetsForEstimate =
-      (patch.targets as MonitorTarget[] | undefined) ?? null;
-    const goalForEstimate =
-      params.input.goal !== undefined ? normalizeGoal(params.input.goal) : null;
-    if (targetsForEstimate) {
-      const judgeOn =
-        Boolean(params.input.judgeEnabled) && Boolean(goalForEstimate);
-      patch.estimated_credits_per_month =
-        estimateMonitorCreditsPerRun(targetsForEstimate, judgeOn) *
-        estimateRunsPerMonth(params.intervalMs);
-    }
-  }
   if (params.input.schedule !== undefined) {
     patch.schedule_cron = params.input.schedule.cron;
     patch.schedule_timezone = params.input.schedule.timezone;
     patch.next_run_at = params.nextRunAt?.toISOString() ?? null;
+  }
+
+  // Re-estimate whenever any cost input changed. Merge the patch with the
+  // current monitor row so a goal/judge-only update still recalculates
+  // against the existing targets + schedule, and a targets-only update
+  // preserves an already-enabled judge.
+  const costInputsChanged =
+    params.input.targets !== undefined ||
+    params.input.judgeEnabled !== undefined ||
+    params.input.goal !== undefined ||
+    params.input.schedule !== undefined;
+  if (costInputsChanged) {
+    const existing = await getMonitorForUpdate(params.teamId, params.monitorId);
+    if (existing) {
+      const mergedTargets =
+        (patch.targets as MonitorTarget[] | undefined) ?? existing.targets;
+      const mergedGoal =
+        params.input.goal !== undefined
+          ? normalizeGoal(params.input.goal)
+          : existing.goal;
+      const mergedJudgeEnabled =
+        params.input.judgeEnabled !== undefined
+          ? params.input.judgeEnabled
+          : existing.judge_enabled;
+      const mergedIntervalMs =
+        params.intervalMs ??
+        validateMonitorCron(
+          (patch.schedule_cron as string | undefined) ?? existing.schedule_cron,
+          (patch.schedule_timezone as string | undefined) ??
+            existing.schedule_timezone,
+        ).intervalMs;
+      const judgeOn = Boolean(mergedJudgeEnabled) && Boolean(mergedGoal);
+      patch.estimated_credits_per_month =
+        estimateMonitorCreditsPerRun(mergedTargets, judgeOn) *
+        estimateRunsPerMonth(mergedIntervalMs);
+    }
   }
 
   const { data, error } = await supabase_service

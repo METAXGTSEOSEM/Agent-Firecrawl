@@ -212,12 +212,7 @@ export async function recordMonitorScrapeSuccess(
         undefined,
         JUDGE_CREDIT_COST,
         job.data.apiKeyId ?? null,
-        {
-          source: "monitor.judge",
-          monitorId: monitoring.monitorId,
-          monitorCheckId: monitoring.checkId,
-          pageUrl: url,
-        } as any,
+        { endpoint: "monitor", jobId: monitoring.checkId },
         logger,
       );
     } catch (error) {
