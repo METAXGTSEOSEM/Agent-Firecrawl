@@ -99,7 +99,8 @@ export function buildHtml(payload: MonitoringEmailPayload): string {
       let reason = "";
       if (page.judgment) {
         if (page.judgment.meaningful) {
-          badge = ' <span style="color:#b45309;font-weight:600">[meaningful]</span>';
+          badge =
+            ' <span style="color:#b45309;font-weight:600">[meaningful]</span>';
         } else {
           badge = ' <span style="color:#6b7280">[noise]</span>';
         }
@@ -114,7 +115,9 @@ export function buildHtml(payload: MonitoringEmailPayload): string {
 
   // When the judge ran, surface the meaningful/noise split in the summary.
   const judgedPages = payload.pages.filter(p => p.judgment);
-  const meaningfulCount = judgedPages.filter(p => p.judgment!.meaningful).length;
+  const meaningfulCount = judgedPages.filter(
+    p => p.judgment!.meaningful,
+  ).length;
   const noiseCount = judgedPages.length - meaningfulCount;
   const changedLine =
     judgedPages.length > 0
@@ -181,12 +184,20 @@ export async function sendMonitoringEmailSummary(params: {
   // classified as meaningful or noise. Only fire the email if at least one
   // changed page was judged meaningful (or has new/removed/error status,
   // which always count regardless of judgment).
+  //
+  // Safety: the caller may pass a paginated subset of pages. Only suppress
+  // when we can prove the changed-page list is COMPLETE by comparing the
+  // count we see to the authoritative count on the check row. If the list
+  // is truncated, fail open and send the email — a false alarm is cheaper
+  // than swallowing a real meaningful change that lives past the page cap.
   if (params.monitor.judge_enabled && params.monitor.goal) {
     const changedPages = params.pages.filter(p => p.status === "changed");
     const nonChangedActivity = params.pages.some(
       p => p.status === "new" || p.status === "removed" || p.status === "error",
     );
-    if (changedPages.length > 0 && !nonChangedActivity) {
+    const changedListComplete =
+      changedPages.length >= params.check.changed_count;
+    if (changedPages.length > 0 && !nonChangedActivity && changedListComplete) {
       const anyMeaningful = changedPages.some(
         p => p.judgment?.meaningful === true || !p.judgment,
       );
@@ -201,6 +212,20 @@ export async function sendMonitoringEmailSummary(params: {
         );
         return { attempted: false, success: true, recipients: [] };
       }
+    } else if (
+      changedPages.length > 0 &&
+      !nonChangedActivity &&
+      !changedListComplete
+    ) {
+      logger.info(
+        "Skipping judge-based email gating; changed-page list is truncated",
+        {
+          monitorId: params.monitor.id,
+          checkId: params.check.id,
+          changedSeen: changedPages.length,
+          changedTotal: params.check.changed_count,
+        },
+      );
     }
   }
 

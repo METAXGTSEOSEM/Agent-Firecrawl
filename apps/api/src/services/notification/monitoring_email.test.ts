@@ -152,10 +152,7 @@ describe("monitoring email", () => {
         buildArgs({
           goal: "track anything",
           emailEnabled: true,
-          pages: [
-            { status: "changed", meaningful: false },
-            { status: "new" },
-          ],
+          pages: [{ status: "changed", meaningful: false }, { status: "new" }],
         }),
       );
       expect(result.attempted).toBe(true);
@@ -169,6 +166,23 @@ describe("monitoring email", () => {
           pages: [{ status: "changed", meaningful: false }],
         }),
       );
+      expect(result.attempted).toBe(true);
+    });
+
+    it("fails open when changed-page list is truncated (would otherwise suppress)", async () => {
+      // Simulate the caller passing 2 pages while the check claims 50
+      // changed pages total. All 2 are noise, but we cannot prove the
+      // unseen 48 are also noise, so the email must fire.
+      const args = buildArgs({
+        goal: "track price changes",
+        emailEnabled: true,
+        pages: [
+          { status: "changed", meaningful: false },
+          { status: "changed", meaningful: false },
+        ],
+      });
+      (args.check as any).changed_count = 50;
+      const result = await sendMonitoringEmailSummary(args);
       expect(result.attempted).toBe(true);
     });
   });
