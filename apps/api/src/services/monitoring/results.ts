@@ -2,6 +2,7 @@ import { NuQJob } from "../worker/nuq";
 import { ScrapeJobData } from "../../types";
 import { logger as _logger } from "../../lib/logger";
 import { createWebhookSender, WebhookEvent } from "../webhook";
+import { billTeam } from "../billing/credit_billing";
 import { computeAndPersistPageDiff } from "./diff-orchestrator";
 import { derivePageWebhookEvents } from "./page-events";
 import {
@@ -11,6 +12,8 @@ import {
   insertMonitorCheckPages,
   upsertMonitorPage,
 } from "./store";
+
+const JUDGE_CREDIT_COST = 1;
 
 const logger = _logger.child({ module: "monitoring-results" });
 
@@ -201,6 +204,30 @@ export async function recordMonitorScrapeSuccess(
     diffGcsKey,
     judgmentMeaningful: judgment?.meaningful,
   });
+
+  if (judgment) {
+    try {
+      await billTeam(
+        job.data.team_id,
+        undefined,
+        JUDGE_CREDIT_COST,
+        job.data.apiKeyId ?? null,
+        {
+          source: "monitor.judge",
+          monitorId: monitoring.monitorId,
+          monitorCheckId: monitoring.checkId,
+          pageUrl: url,
+        } as any,
+        logger,
+      );
+    } catch (error) {
+      logger.warn("Failed to bill judge credit", {
+        error,
+        monitorId: monitoring.monitorId,
+        checkId: monitoring.checkId,
+      });
+    }
+  }
 
   await sendMonitorPageWebhook({
     teamId: job.data.team_id,

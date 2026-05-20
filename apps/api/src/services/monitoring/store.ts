@@ -36,11 +36,15 @@ function estimateTargetCredits(target: MonitorTarget): number {
   return Math.max(1, limit);
 }
 
-export function estimateMonitorCreditsPerRun(targets: MonitorTarget[]): number {
-  return targets.reduce(
+export function estimateMonitorCreditsPerRun(
+  targets: MonitorTarget[],
+  judgeEnabled: boolean = false,
+): number {
+  const scrapeCredits = targets.reduce(
     (sum, target) => sum + estimateTargetCredits(target),
     0,
   );
+  return judgeEnabled ? scrapeCredits * 2 : scrapeCredits;
 }
 
 function toMonitorSummary(check: MonitorCheckRow): MonitorSummary {
@@ -73,7 +77,13 @@ export async function createMonitor(params: {
   intervalMs: number;
 }): Promise<MonitorRow> {
   const targets = ensureTargetIds(params.input.targets);
-  const estimatedCreditsPerRun = estimateMonitorCreditsPerRun(targets);
+  const judgeEnabled =
+    Boolean(params.input.judgeEnabled) &&
+    Boolean(normalizeGoal(params.input.goal));
+  const estimatedCreditsPerRun = estimateMonitorCreditsPerRun(
+    targets,
+    judgeEnabled,
+  );
   const estimatedCreditsPerMonth =
     estimatedCreditsPerRun * estimateRunsPerMonth(params.intervalMs);
 
@@ -185,11 +195,23 @@ export async function updateMonitor(params: {
     patch.judge_enabled = params.input.judgeEnabled;
   }
   if (params.input.targets !== undefined) {
-    const targets = ensureTargetIds(params.input.targets);
-    patch.targets = targets;
-    if (params.intervalMs !== undefined) {
+    patch.targets = ensureTargetIds(params.input.targets);
+  }
+  // Re-estimate when any input that drives the cost changed.
+  const costInputsChanged =
+    params.input.targets !== undefined ||
+    params.input.judgeEnabled !== undefined ||
+    params.input.goal !== undefined;
+  if (costInputsChanged && params.intervalMs !== undefined) {
+    const targetsForEstimate =
+      (patch.targets as MonitorTarget[] | undefined) ?? null;
+    const goalForEstimate =
+      params.input.goal !== undefined ? normalizeGoal(params.input.goal) : null;
+    if (targetsForEstimate) {
+      const judgeOn =
+        Boolean(params.input.judgeEnabled) && Boolean(goalForEstimate);
       patch.estimated_credits_per_month =
-        estimateMonitorCreditsPerRun(targets) *
+        estimateMonitorCreditsPerRun(targetsForEstimate, judgeOn) *
         estimateRunsPerMonth(params.intervalMs);
     }
   }
