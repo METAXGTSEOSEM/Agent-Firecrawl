@@ -84,7 +84,6 @@ export function buildMonitoringCheckDashboardUrl(
 }
 
 export function buildHtml(payload: MonitoringEmailPayload): string {
-  // Sort meaningful pages first so the alert leads with what mattered.
   const sortedPages = [...payload.pages].sort((a, b) => {
     const aMeaningful = a.judgment?.meaningful === true ? 0 : 1;
     const bMeaningful = b.judgment?.meaningful === true ? 0 : 1;
@@ -113,7 +112,6 @@ export function buildHtml(payload: MonitoringEmailPayload): string {
     .join("");
   const dashboardUrl = escapeHtml(payload.dashboardUrl);
 
-  // When the judge ran, surface the meaningful/noise split in the summary.
   const judgedPages = payload.pages.filter(p => p.judgment);
   const meaningfulCount = judgedPages.filter(
     p => p.judgment!.meaningful,
@@ -180,16 +178,9 @@ export async function sendMonitoringEmailSummary(params: {
     return { attempted: false, success: true, recipients: [] };
   }
 
-  // When the monitor has the AI judge enabled, each changed page has been
-  // classified as meaningful or noise. Only fire the email if at least one
-  // changed page was judged meaningful (or has new/removed/error status,
-  // which always count regardless of judgment).
-  //
-  // Safety: the caller may pass a paginated subset of pages. Only suppress
-  // when we can prove the changed-page list is COMPLETE by comparing the
-  // count we see to the authoritative count on the check row. If the list
-  // is truncated, fail open and send the email — a false alarm is cheaper
-  // than swallowing a real meaningful change that lives past the page cap.
+  // Caller may pass a paginated subset; only trust the judgment-based
+  // suppression when changedPages covers the full changed_count. A missed
+  // meaningful alert is worse than an extra noisy email.
   if (params.monitor.judge_enabled && params.monitor.goal) {
     const changedPages = params.pages.filter(p => p.status === "changed");
     const nonChangedActivity = params.pages.some(

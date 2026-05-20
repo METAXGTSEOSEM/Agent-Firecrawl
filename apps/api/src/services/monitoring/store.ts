@@ -60,8 +60,6 @@ function throwIfError(error: any, message: string): void {
   }
 }
 
-// Trim whitespace; treat empty/all-whitespace as "no goal" so users who
-// leave the field blank aren't quietly opted into AI judging.
 function normalizeGoal(goal: string | undefined | null): string | null {
   if (goal == null) return null;
   const trimmed = goal.trim();
@@ -79,9 +77,8 @@ export async function createMonitor(params: {
   const estimatedCreditsPerMonth =
     estimatedCreditsPerRun * estimateRunsPerMonth(params.intervalMs);
 
-  // Only include `goal` in the insert when the caller provided one. This
-  // keeps create-monitor working in environments where the matching DB
-  // migration hasn't landed yet — the schema lives in a separate repo.
+  // Omit goal/judge_enabled keys when undefined so a pre-migration DB
+  // doesn't reject the insert. Migration lives in a separate repo.
   const insert: Record<string, unknown> = {
     id: uuidv7(),
     team_id: params.teamId,

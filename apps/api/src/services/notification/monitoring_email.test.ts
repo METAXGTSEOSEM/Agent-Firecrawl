@@ -132,7 +132,6 @@ describe("monitoring email", () => {
           ],
         }),
       );
-      // attempted=true means it got past the gate and tried to send
       expect(result.attempted).toBe(true);
     });
 
@@ -170,9 +169,6 @@ describe("monitoring email", () => {
     });
 
     it("fails open when changed-page list is truncated (would otherwise suppress)", async () => {
-      // Simulate the caller passing 2 pages while the check claims 50
-      // changed pages total. All 2 are noise, but we cannot prove the
-      // unseen 48 are also noise, so the email must fire.
       const args = buildArgs({
         goal: "track price changes",
         emailEnabled: true,
