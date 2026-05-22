@@ -7,6 +7,7 @@ interface CreditUsageResponse {
   data: {
     remainingCredits: number;
     planCredits: number;
+    usedCredits: number;
     billingPeriodStart: string | null;
     billingPeriodEnd: string | null;
   };
@@ -31,6 +32,7 @@ export async function creditUsageController(
     data: {
       remainingCredits: balance.remaining,
       planCredits: balance.planCredits,
+      usedCredits: balance.usage,
       billingPeriodStart: balance.periodStart,
       billingPeriodEnd: balance.periodEnd,
     },
