@@ -94,7 +94,20 @@ const monitorNotificationSchema = z
   .optional()
   .default({});
 
-export const createMonitorSchema = z.strictObject({
+function applyJudgeEnabledDefault<
+  T extends { goal?: string | null; judgeEnabled?: boolean },
+>(input: T): T {
+  if (
+    input.judgeEnabled === undefined &&
+    typeof input.goal === "string" &&
+    input.goal.trim().length > 0
+  ) {
+    return { ...input, judgeEnabled: true };
+  }
+  return input;
+}
+
+const createMonitorBaseSchema = z.strictObject({
   name: z.string().min(1).max(256),
   schedule: monitorScheduleSchema,
   webhook: monitorWebhookSchema.optional(),
@@ -105,12 +118,17 @@ export const createMonitorSchema = z.strictObject({
   judgeEnabled: z.boolean().optional(),
 });
 
-export const updateMonitorSchema = createMonitorSchema
+export const createMonitorSchema = createMonitorBaseSchema.transform(
+  applyJudgeEnabledDefault,
+);
+
+export const updateMonitorSchema = createMonitorBaseSchema
   .partial()
   .extend({
     status: z.enum(["active", "paused"]).optional(),
   })
-  .refine(x => Object.keys(x).length > 0, "Update body cannot be empty");
+  .refine(x => Object.keys(x).length > 0, "Update body cannot be empty")
+  .transform(applyJudgeEnabledDefault);
 
 export const listMonitorsQuerySchema = z.object({
   limit: z.coerce.number().int().positive().max(100).optional().default(25),
