@@ -590,7 +590,37 @@ export class AutumnService {
     string,
     { value: number | null; expiresAt: number }
   >(50_000);
+  private orgTeamCountCache = new BoundedMap<
+    string,
+    { count: number; expiresAt: number }
+  >(50_000);
   private static readonly CONCURRENCY_LIMIT_TTL_MS = 60_000;
+  private static readonly ORG_TEAM_COUNT_TTL_MS = 300_000;
+
+  /**
+   * Counts how many teams belong to an org, with a 5-minute cache. Used to
+   * gate Autumn-side concurrency lookups — multi-team orgs share an Autumn
+   * customer/balance, so per-team concurrency from Autumn isn't meaningful
+   * there yet and we should defer to ACUC.
+   */
+  private async getOrgTeamCount(orgId: string): Promise<number> {
+    const now = Date.now();
+    const cached = this.orgTeamCountCache.get(orgId);
+    if (cached && cached.expiresAt > now) return cached.count;
+
+    const { count, error } = await supabase_rr_service
+      .from("teams")
+      .select("id", { count: "exact", head: true })
+      .eq("org_id", orgId);
+    if (error) throw error;
+
+    const value = count ?? 0;
+    this.orgTeamCountCache.set(orgId, {
+      count: value,
+      expiresAt: now + AutumnService.ORG_TEAM_COUNT_TTL_MS,
+    });
+    return value;
+  }
 
   /**
    * Reads the team's allowed concurrent-browser count from Autumn's CONCURRENCY
@@ -610,6 +640,17 @@ export class AutumnService {
     try {
       const resolvedOrgId = orgId ?? (await this.resolveOrgId(teamId));
       if (!resolvedOrgId) return null;
+
+      // Skip Autumn for multi-team orgs — the customer-level balance is
+      // shared across teams and ACUC remains authoritative there.
+      const teamCount = await this.getOrgTeamCount(resolvedOrgId);
+      if (teamCount > 1) {
+        this.concurrencyLimitCache.set(teamId, {
+          value: null,
+          expiresAt: now + AutumnService.CONCURRENCY_LIMIT_TTL_MS,
+        });
+        return null;
+      }
 
       let balances: Record<string, any> | undefined;
       try {
