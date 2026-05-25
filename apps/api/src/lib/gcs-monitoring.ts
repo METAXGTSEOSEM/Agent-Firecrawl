@@ -93,47 +93,6 @@ function artifactBytes(artifact: MonitorDiffArtifact): {
   return { textBytes, jsonBytes };
 }
 
-async function saveMonitorJsonWithRetries(
-  bucketName: string,
-  key: string,
-  payload: string,
-  attempts: GCSOperationAttempt[],
-): Promise<GCSOperationAttempt[]> {
-  const bucket = storageManualRetries.bucket(bucketName);
-  const blob = bucket.file(key);
-
-  for (let i = 0; i < BACKOFF_PARAMS.length; i++) {
-    const backoffMs = BACKOFF_PARAMS[i];
-    if (backoffMs > 0) {
-      await new Promise(resolve => setTimeout(resolve, backoffMs));
-    }
-
-    const saveStart = Date.now();
-    try {
-      await blob.save(payload, {
-        contentType,
-        resumable: false,
-      });
-      attempts.push({
-        error: null,
-        timeMs: Date.now() - saveStart,
-        backoffMs,
-      });
-      return attempts;
-    } catch (error) {
-      // Mirrors the GCS jobs retry shape, but stays local to monitoring to keep
-      // monitor artifact storage isolated from scrape/job storage semantics.
-      attempts.push({ error, timeMs: Date.now() - saveStart, backoffMs });
-
-      if (i === BACKOFF_PARAMS.length - 1) {
-        throw error;
-      }
-    }
-  }
-
-  return attempts;
-}
-
 export async function saveMonitorDiffArtifact(
   key: string,
   artifact: MonitorDiffArtifact,
@@ -143,41 +102,73 @@ export async function saveMonitorDiffArtifact(
     return artifactBytes(artifact);
   }
 
-  let attempts: GCSOperationAttempt[] = [];
-  try {
-    attempts = await saveMonitorJsonWithRetries(
-      config.GCS_BUCKET_NAME,
-      key,
-      payload,
-      attempts,
-    );
-    if (attempts.length === 1) {
-      logger.debug("Monitor diff artifact saved to GCS", {
-        canonicalLog: "gcs-monitoring/save",
-        key,
-        attempts,
-        success: true,
-      });
-    } else {
-      logger.warn("Monitor diff artifact saved to GCS with retries", {
-        canonicalLog: "gcs-monitoring/save",
-        key,
-        attempts,
-        success: true,
-      });
-    }
-  } catch (error) {
-    logger.error("Monitor diff artifact save to GCS failed", {
-      canonicalLog: "gcs-monitoring/save",
-      key,
-      attempts,
-      success: false,
-      error,
-    });
-    throw error;
-  }
+  const saveAttempts: GCSOperationAttempt[] = [];
+  const bucket = storageManualRetries.bucket(config.GCS_BUCKET_NAME);
+  const blob = bucket.file(key);
 
-  return artifactBytes(artifact);
+  return await (async () => {
+    for (let i = 0; i < BACKOFF_PARAMS.length; i++) {
+      const backoffMs = BACKOFF_PARAMS[i];
+      if (backoffMs > 0) {
+        await new Promise(resolve => setTimeout(resolve, backoffMs));
+      }
+
+      const saveStart = Date.now();
+      try {
+        await blob.save(payload, {
+          contentType,
+          resumable: false,
+        });
+        saveAttempts.push({
+          error: null,
+          timeMs: Date.now() - saveStart,
+          backoffMs,
+        });
+        break;
+      } catch (error) {
+        // TODO: determine what kind of errors we should backoff or instafail on
+        saveAttempts.push({
+          error,
+          timeMs: Date.now() - saveStart,
+          backoffMs,
+        });
+
+        if (i === BACKOFF_PARAMS.length - 1) {
+          throw error;
+        }
+      }
+    }
+
+    return artifactBytes(artifact);
+  })()
+    .then(result => {
+      if (saveAttempts.length === 1) {
+        logger.debug("Monitor diff artifact saved to GCS", {
+          canonicalLog: "gcs-monitoring/save",
+          key,
+          saveAttempts,
+          success: true,
+        });
+      } else {
+        logger.warn("Monitor diff artifact saved to GCS with retries", {
+          canonicalLog: "gcs-monitoring/save",
+          key,
+          saveAttempts,
+          success: true,
+        });
+      }
+      return result;
+    })
+    .catch(error => {
+      logger.error("Monitor diff artifact save to GCS failed", {
+        canonicalLog: "gcs-monitoring/save",
+        key,
+        saveAttempts,
+        success: false,
+        error,
+      });
+      throw error;
+    });
 }
 
 export async function getMonitorDiffArtifact(
