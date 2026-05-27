@@ -75,7 +75,6 @@ describe("billTeam", () => {
         jobId: "job-1",
         apiKeyId: 123,
       },
-      requestScoped: true,
     });
   });
 

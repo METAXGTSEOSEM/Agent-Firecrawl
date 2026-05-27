@@ -35,7 +35,6 @@ export async function billTeam(
         teamId: team_id,
         value: credits,
         properties: autumnProperties,
-        requestScoped: true,
       });
 
       const result = await queueBillingOperation(

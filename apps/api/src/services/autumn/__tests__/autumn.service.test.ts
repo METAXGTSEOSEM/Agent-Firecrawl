@@ -69,21 +69,11 @@ jest.mock("../../supabase", () => ({
 }));
 
 jest.mock("../../../config", () => ({
-  config: {
-    AUTUMN_REQUEST_TRACK_EXPERIMENT: undefined,
-    AUTUMN_REQUEST_TRACK_EXPERIMENT_PERCENT: 100,
-  },
+  config: {},
 }));
 
 // Import AFTER mocks are wired up.
-import {
-  AutumnService,
-  BoundedMap,
-  BoundedSet,
-  isAutumnRequestTrackEnabled,
-  orgBucket,
-} from "../autumn.service";
-import { config } from "../../../config";
+import { AutumnService, BoundedMap, BoundedSet } from "../autumn.service";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -105,8 +95,6 @@ beforeEach(() => {
   jest.clearAllMocks();
   autumnClientRef = mockAutumnClient;
   supabaseStubData = { data: { org_id: "org-1" }, error: null };
-  config.AUTUMN_REQUEST_TRACK_EXPERIMENT = undefined;
-  config.AUTUMN_REQUEST_TRACK_EXPERIMENT_PERCENT = 100;
   mockCheck.mockResolvedValue({
     allowed: true,
     customerId: "org-1",
@@ -505,45 +493,5 @@ describe("refundCredits", () => {
     const svc = makeService();
     await svc.refundCredits({ teamId: "preview_abc", value: 30 });
     expect(mockTrack).not.toHaveBeenCalled();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// experiment gating
-// ---------------------------------------------------------------------------
-
-describe("orgBucket", () => {
-  it("is deterministic — same orgId always returns the same bucket", () => {
-    const id = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
-    expect(orgBucket(id)).toBe(orgBucket(id));
-  });
-
-  it("returns a value in [0, 100)", () => {
-    const ids = [
-      "00000000-0000-0000-0000-000000000000",
-      "ffffffff-ffff-ffff-ffff-ffffffffffff",
-      "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-    ];
-    for (const id of ids) {
-      const b = orgBucket(id);
-      expect(b).toBeGreaterThanOrEqual(0);
-      expect(b).toBeLessThan(100);
-    }
-  });
-
-  it("strips dashes and uses first 8 hex chars", () => {
-    // "a1b2c3d4" → parseInt("a1b2c3d4", 16) = 2712847316 → 2712847316 % 100 = 16
-    expect(orgBucket("a1b2c3d4-0000-0000-0000-000000000000")).toBe(16);
-  });
-});
-
-describe("isAutumnRequestTrackEnabled", () => {
-  it("returns false when request tracking flag is not 'true'", () => {
-    expect(isAutumnRequestTrackEnabled()).toBe(false);
-  });
-
-  it("returns true when request tracking is enabled", () => {
-    config.AUTUMN_REQUEST_TRACK_EXPERIMENT = "true";
-    expect(isAutumnRequestTrackEnabled()).toBe(true);
   });
 });

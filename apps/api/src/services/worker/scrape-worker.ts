@@ -140,7 +140,6 @@ async function billScrapeJob(
           teamId: job.data.team_id,
           value: creditsToBeBilled,
           properties: autumnProperties,
-          requestScoped: true,
         });
         const billingJobId = uuidv7();
         logger.debug(
