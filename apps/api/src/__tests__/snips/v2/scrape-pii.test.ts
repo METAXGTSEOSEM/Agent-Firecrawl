@@ -156,7 +156,7 @@ describeIf(TEST_PRODUCTION)("V2 Scrape redactPII (e2e)", () => {
   );
 
   it(
-    "fails closed when fire-privacy is unreachable — pii.status is failed, markdown is absent",
+    "fails closed when fire-privacy is unreachable — pii.status is failed, markdown is empty",
     async () => {
       const data = await scrape(
         {
@@ -177,12 +177,12 @@ describeIf(TEST_PRODUCTION)("V2 Scrape redactPII (e2e)", () => {
         expect(data.markdown).toBe(data.pii!.redactedMarkdown);
       } else {
         expect(data.pii!.reason).toBeDefined();
-        // Markdown is absent on failed / skipped-with-null-redacted; on
+        // Markdown is empty on failed / skipped-with-null-redacted; on
         // upstream_skipped / empty_input it passes through (equal to
         // redactedMarkdown). Verify the invariant: markdown matches
-        // redactedMarkdown (or both absent).
+        // redactedMarkdown (or is fail-closed empty).
         if (data.pii!.redactedMarkdown === null) {
-          expect(data.markdown).toBeUndefined();
+          expect(data.markdown).toBe("");
         } else {
           expect(data.markdown).toBe(data.pii!.redactedMarkdown);
         }

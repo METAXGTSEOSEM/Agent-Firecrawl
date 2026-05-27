@@ -746,15 +746,6 @@ const extractTransformImpl = <T extends ScrapeOptionsBase | undefined>(
     result = { ...result, maxAge: 2 * 365 * 24 * 60 * 60 * 1000 };
   }
 
-  // redactPII implies onlyMainContent. Boilerplate (nav, footer, cookie
-  // banners) rarely contains real PII, and redacting it produces noisy
-  // `<PERSON>` tags on "Privacy Policy" / "About Us" links that look like
-  // false positives. Smaller surface is also faster + cheaper to redact.
-  // Silent precedence (matches lockdown) rather than schema rejection.
-  if (obj.redactPII && !obj.onlyMainContent) {
-    result = { ...result, onlyMainContent: true };
-  }
-
   return result as T extends undefined ? undefined : T;
 };
 
@@ -1207,7 +1198,7 @@ export type PIISpan = {
 //             redactedMarkdown may be the original text or null.
 // `failed`  — redaction was attempted but did not produce a usable result;
 //             see `reason`. redactedMarkdown is null.
-export type PIIStatus = "ok" | "skipped" | "failed";
+type PIIStatus = "ok" | "skipped" | "failed";
 
 // Why redaction was skipped or failed. Always set when status !== "ok".
 //   empty_input         — no markdown to redact, or markdown was whitespace

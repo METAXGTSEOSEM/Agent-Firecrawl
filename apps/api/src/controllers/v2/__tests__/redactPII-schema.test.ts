@@ -174,16 +174,26 @@ describe("v2 scrapeRequestSchema — redactPII", () => {
     expect(result.success).toBe(false);
   });
 
-  // ---- onlyMainContent precedence -----------------------------------------
+  // ---- onlyMainContent ------------------------------------------------------
 
-  it("forces onlyMainContent: true when redactPII is enabled", () => {
+  it("preserves explicit onlyMainContent: false when redactPII is enabled", () => {
     const result = scrapeRequestSchema.safeParse({
       url: baseUrl,
       formats: ["markdown", "pii"],
       redactPII: true,
-      // Caller explicitly opted out — redactPII overrides silently to
-      // avoid noisy redactions on nav/footer/boilerplate.
       onlyMainContent: false,
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.onlyMainContent).toBe(false);
+    }
+  });
+
+  it("keeps the default onlyMainContent: true when redactPII is enabled", () => {
+    const result = scrapeRequestSchema.safeParse({
+      url: baseUrl,
+      formats: ["markdown", "pii"],
+      redactPII: true,
     });
     expect(result.success).toBe(true);
     if (result.success) {
