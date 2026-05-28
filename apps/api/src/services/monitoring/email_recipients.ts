@@ -148,8 +148,25 @@ async function fetchRecipientByMonitorEmail(
   return (data ?? null) as MonitorEmailRecipientRow | null;
 }
 
-// Reads from the write client to avoid read-replica lag when we need the
-// authoritative current state right after a conditional UPDATE.
+// Read replicas can lag behind a freshly-committed INSERT, which is exactly
+// the moment this re-fetch runs (the concurrent writer just won the unique
+// race). Reading from the primary guarantees we see their row.
+async function fetchRecipientByMonitorEmailPrimary(
+  monitorId: string,
+  email: string,
+): Promise<MonitorEmailRecipientRow | null> {
+  const { data, error } = await supabase_service
+    .from("monitor_email_recipients")
+    .select("*")
+    .eq("monitor_id", monitorId)
+    .eq("email", email)
+    .maybeSingle();
+  throwIfError(error, "Failed to look up monitor email recipient");
+  return (data ?? null) as MonitorEmailRecipientRow | null;
+}
+
+// Same rationale as ...Primary above: a conditional UPDATE just landed, so
+// the replica may not have caught up yet when we re-read.
 async function fetchRecipientByIdPrimary(
   id: string,
 ): Promise<MonitorEmailRecipientRow | null> {
@@ -201,7 +218,7 @@ export async function ensureMonitorEmailRecipient(params: {
 
   if (error) {
     if ((error as { code?: string }).code === POSTGRES_UNIQUE_VIOLATION) {
-      const winner = await fetchRecipientByMonitorEmail(
+      const winner = await fetchRecipientByMonitorEmailPrimary(
         params.monitorId,
         email,
       );
