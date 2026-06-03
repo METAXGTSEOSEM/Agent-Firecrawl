@@ -2,7 +2,9 @@ import WebSocket from "ws";
 import { Meta } from "..";
 import { Document } from "../../../controllers/v2/types";
 import { hasFormatOfType } from "../../../lib/format-utils";
-import { supabase_service } from "../../../services/supabase";
+import { eq } from "drizzle-orm";
+import { db, dbRr } from "../../../db/connection";
+import * as schema from "../../../db/schema";
 import { extractDeterministicJson } from "../../../lib/deterministicJson/extract";
 import type { CacheBackend } from "../../../lib/deterministicJson/core/cache";
 import type { SandboxRunner } from "../../../lib/deterministicJson/sandbox/runExtractor";
@@ -11,19 +13,23 @@ const SANDBOX_URL = process.env.CODE_SANDBOX_URL ?? "ws://code-sandbox:3001";
 
 const cache: CacheBackend = {
   async getExtractor(key) {
-    const { data } = await supabase_service
-      .from("deterministic_json_scripts")
-      .select("code, created_at")
-      .eq("cache_key", key)
-      .maybeSingle();
+    const [data] = await dbRr
+      .select({
+        code: schema.deterministic_json_scripts.code,
+        created_at: schema.deterministic_json_scripts.created_at,
+      })
+      .from(schema.deterministic_json_scripts)
+      .where(eq(schema.deterministic_json_scripts.cache_key, key))
+      .limit(1);
     return data
       ? { code: data.code, createdAt: new Date(data.created_at).getTime() }
       : undefined;
   },
   async setExtractor(key, code, meta) {
     const now = new Date().toISOString();
-    await supabase_service.from("deterministic_json_scripts").upsert(
-      {
+    await db
+      .insert(schema.deterministic_json_scripts)
+      .values({
         cache_key: key,
         code,
         url: meta.url,
@@ -31,16 +37,28 @@ const cache: CacheBackend = {
         cache_version: meta.cacheVersion,
         updated_at: now,
         last_used_at: now,
-      },
-      { onConflict: "cache_key" },
-    );
+      })
+      .onConflictDoUpdate({
+        target: schema.deterministic_json_scripts.cache_key,
+        set: {
+          code,
+          url: meta.url,
+          model: meta.model,
+          cache_version: meta.cacheVersion,
+          updated_at: now,
+          last_used_at: now,
+        },
+      });
   },
   async getLlm(key) {
-    const { data } = await supabase_service
-      .from("deterministic_json_llm_cache")
-      .select("response, created_at")
-      .eq("cache_key", key)
-      .maybeSingle();
+    const [data] = await dbRr
+      .select({
+        response: schema.deterministic_json_llm_cache.response,
+        created_at: schema.deterministic_json_llm_cache.created_at,
+      })
+      .from(schema.deterministic_json_llm_cache)
+      .where(eq(schema.deterministic_json_llm_cache.cache_key, key))
+      .limit(1);
     return data
       ? {
           response: data.response,
@@ -49,24 +67,26 @@ const cache: CacheBackend = {
       : undefined;
   },
   async setLlm(key, response) {
-    await supabase_service
-      .from("deterministic_json_llm_cache")
-      .upsert(
-        { cache_key: key, response, last_used_at: new Date().toISOString() },
-        { onConflict: "cache_key" },
-      );
+    const now = new Date().toISOString();
+    await db
+      .insert(schema.deterministic_json_llm_cache)
+      .values({ cache_key: key, response, last_used_at: now })
+      .onConflictDoUpdate({
+        target: schema.deterministic_json_llm_cache.cache_key,
+        set: { response, last_used_at: now },
+      });
   },
   async touch(key) {
     const now = new Date().toISOString();
     await Promise.all([
-      supabase_service
-        .from("deterministic_json_scripts")
-        .update({ last_used_at: now })
-        .eq("cache_key", key),
-      supabase_service
-        .from("deterministic_json_llm_cache")
-        .update({ last_used_at: now })
-        .eq("cache_key", key),
+      db
+        .update(schema.deterministic_json_scripts)
+        .set({ last_used_at: now })
+        .where(eq(schema.deterministic_json_scripts.cache_key, key)),
+      db
+        .update(schema.deterministic_json_llm_cache)
+        .set({ last_used_at: now })
+        .where(eq(schema.deterministic_json_llm_cache.cache_key, key)),
     ]);
   },
 };
