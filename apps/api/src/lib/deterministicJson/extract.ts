@@ -120,12 +120,9 @@ export async function extractDeterministicJson(
     return await runWithRepair(code);
   } catch (err) {
     log("extractor run failed, regenerating once:", errorMessage(err));
-    try {
-      return await run(await generate(errorMessage(err)));
-    } catch (err2) {
-      log("extractor degraded: both attempts failed, returned empty shape");
-      return parseWithSchema({}, jsonSchema);
-    }
+    // Let a second failure propagate; the caller warns. An empty shape here
+    // would instead read as "page had no data" and hide the real failure.
+    return await run(await generate(errorMessage(err)));
   }
 }
 
