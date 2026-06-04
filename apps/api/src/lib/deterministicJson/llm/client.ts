@@ -222,6 +222,14 @@ export function makeAskLlm(
         continue;
       }
       if (!raw) {
+        // For the text path an empty reply is the intended "absent" answer
+        // (ASK_LLM_SYSTEM tells the model to return an empty string), so honor
+        // it instead of retrying to a null. Structured calls still need
+        // parseable JSON, so an empty body there remains a retryable failure.
+        if (!structured) {
+          await cache.setLlm(cacheKey, "");
+          return "";
+        }
         lastError = "empty response";
         continue;
       }
