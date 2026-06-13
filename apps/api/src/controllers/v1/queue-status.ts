@@ -5,6 +5,7 @@ import { Response } from "express";
 import { getRedisConnection } from "../../services/queue-service";
 import { fdbQueueEnabled } from "../../services/worker/nuq-router";
 import { scrapeQueueFdb } from "../../services/worker/nuq-fdb";
+import { logger } from "../../lib/logger";
 import {
   cleanOldConcurrencyLimitedJobs,
   cleanOldConcurrencyLimitEntries,
@@ -51,12 +52,20 @@ export async function queueStatusController(
 
   // during the FDB migration a team can have load on both ledgers
   if (fdbQueueEnabled()) {
-    activeJobsOfTeam += await scrapeQueueFdb.getTeamActiveCount(
-      req.auth.team_id,
-    );
-    queuedJobsOfTeam += await scrapeQueueFdb.getTeamPendingCount(
-      req.auth.team_id,
-    );
+    try {
+      activeJobsOfTeam += await scrapeQueueFdb.getTeamActiveCount(
+        req.auth.team_id,
+      );
+      queuedJobsOfTeam += await scrapeQueueFdb.getTeamPendingCount(
+        req.auth.team_id,
+      );
+    } catch (error) {
+      logger.warn("Failed to read FDB queue counts, falling back to Redis", {
+        module: "queue-status",
+        version: "v1",
+        error,
+      });
+    }
   }
 
   const mostRecentSuccess = await getRedisConnection().get(

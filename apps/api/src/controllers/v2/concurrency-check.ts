@@ -10,6 +10,7 @@ import { getACUCTeam } from "../auth";
 import { RateLimiterMode } from "../../types";
 import { fdbQueueEnabled } from "../../services/worker/nuq-router";
 import { scrapeQueueFdb } from "../../services/worker/nuq-fdb";
+import { logger } from "../../lib/logger";
 
 // Basically just middleware and error wrapping
 export async function concurrencyCheckController(
@@ -49,9 +50,18 @@ export async function concurrencyCheckController(
   );
 
   // during the FDB migration a team can have load on both ledgers
-  const fdbActive = fdbQueueEnabled()
-    ? await scrapeQueueFdb.getTeamActiveCount(req.auth.team_id)
-    : 0;
+  let fdbActive = 0;
+  if (fdbQueueEnabled()) {
+    try {
+      fdbActive = await scrapeQueueFdb.getTeamActiveCount(req.auth.team_id);
+    } catch (error) {
+      logger.warn("Failed to read FDB active count, falling back to Redis", {
+        module: "concurrency-check",
+        version: "v2",
+        error,
+      });
+    }
+  }
 
   return res.status(200).json({
     success: true,

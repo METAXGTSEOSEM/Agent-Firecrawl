@@ -66,7 +66,15 @@ import { initializeEngineForcing } from "../../scraper/WebScraper/utils/engine-f
   // the FDB backend has no pg_cron: one worker at a time holds the sweeper
   // lease and runs lease/timeout/group sweeps for everyone
   if (fdbQueueEnabled()) {
-    getNuqFdbSweeper().start();
+    try {
+      getNuqFdbSweeper().start();
+    } catch (error) {
+      if (config.NUQ_BACKEND === "fdb") throw error;
+      _logger.warn("Failed to start FDB sweeper, continuing with PG", {
+        module: "nuq-worker",
+        error,
+      });
+    }
   }
 
   while (!isShuttingDown) {
@@ -150,7 +158,14 @@ import { initializeEngineForcing } from "../../scraper/WebScraper/utils/engine-f
 
   server.close(async () => {
     if (fdbQueueEnabled()) {
-      getNuqFdbSweeper().stop();
+      try {
+        getNuqFdbSweeper().stop();
+      } catch (error) {
+        _logger.warn("Failed to stop FDB sweeper", {
+          module: "nuq-worker",
+          error,
+        });
+      }
     }
     await scrapeQueuePg.shutdown();
     _logger.info("NuQ worker shut down");
