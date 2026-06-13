@@ -35,6 +35,7 @@ import {
   popTeamPending,
   setGroupJobIndex,
   bumpGroupStatusCount,
+  bumpTeamActive,
   GroupJobIndexValue,
 } from "./ops";
 import { NuQFdbQueue } from "./queue";
@@ -504,8 +505,7 @@ export class NuqFdbSweeper {
           promoted++;
           free--;
         }
-        if (promoted > 0)
-          tn.add(ks.teamActive(tid), encodeI64FromNumber(promoted));
+        if (promoted > 0) bumpTeamActive(tn, ks, tid, promoted);
         // done when no free slots remain or the pending queue is drained
         return free > 0 || limit - active <= 0;
       });
@@ -593,10 +593,4 @@ export class NuqFdbSweeper {
       });
     }
   }
-}
-
-function encodeI64FromNumber(n: number): Buffer {
-  const buf = Buffer.alloc(8);
-  buf.writeBigInt64LE(BigInt(n));
-  return buf;
 }

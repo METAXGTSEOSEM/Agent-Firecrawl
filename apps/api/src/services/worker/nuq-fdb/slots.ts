@@ -9,7 +9,7 @@ import {
   F_GATED,
   normalizeOwnerId,
 } from "./keyspace";
-import { ONE, newTxContext, releaseSlotsAndPromote } from "./ops";
+import { bumpTeamActive, newTxContext, releaseSlotsAndPromote } from "./ops";
 
 // External slots: capacity consumed by things that are not queue jobs (sync
 // scrapes via the team semaphore, browser sessions). They unconditionally bump
@@ -62,7 +62,7 @@ export class NuqFdbExternalSlots {
       if (existing) {
         tn.clear(this.expiryKey(timeBucket(holderId), existing.e, holderId));
       } else {
-        tn.add(this.ks.teamActive(owner), ONE);
+        bumpTeamActive(tn, this.ks, owner, 1);
       }
       tn.set(
         this.key(owner, holderId),

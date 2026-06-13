@@ -49,6 +49,7 @@ import {
   deleteJobRecords,
   setGroupJobIndex,
   bumpGroupStatusCount,
+  bumpTeamActive,
   GroupJobIndexValue,
 } from "./ops";
 import { NuqFdbGroupOps } from "./groups";
@@ -312,6 +313,8 @@ export class NuQFdbQueue<JobData = any, JobReturnValue = any> {
         8 +
         ks.teamActive(owner).length +
         8 +
+        ks.teamActiveIndex(owner).length +
+        8 +
         ks.teamPendingCount(owner).length +
         8 +
         ks.teamShardCount(owner, 0).length +
@@ -496,7 +499,7 @@ export class NuQFdbQueue<JobData = any, JobReturnValue = any> {
       }
 
       if (granted > 0 && ownerId !== null) {
-        tn.add(ks.teamActive(ownerId), encodeI64(granted));
+        bumpTeamActive(tn, ks, ownerId, granted);
       }
       for (const [gid, n] of crawlAcquired) {
         tn.add(ks.groupCrawlActive(gid), encodeI64(n));
@@ -1239,6 +1242,23 @@ export class NuQFdbQueue<JobData = any, JobReturnValue = any> {
         decodeI64(await tn.snapshot().get(this.ks.teamActive(owner))),
       ),
     );
+  }
+
+  public async getTeamActiveCounts(): Promise<Map<string, number>> {
+    const ks = this.ks;
+    return await this.db.doTn(async tn => {
+      const r = ks.teamActiveIndexRange();
+      const rows = await tn.snapshot().getRangeAll(r.begin, r.end);
+      const counts = new Map<string, number>();
+      for (const [key, value] of rows) {
+        const parts = ks.unpack(key as Buffer);
+        const teamId = parts[2];
+        if (typeof teamId !== "string") continue;
+        const count = Math.max(0, decodeI64(value as Buffer));
+        if (count > 0) counts.set(teamId, count);
+      }
+      return counts;
+    });
   }
 
   public async getTeamPendingCount(teamId: string): Promise<number> {

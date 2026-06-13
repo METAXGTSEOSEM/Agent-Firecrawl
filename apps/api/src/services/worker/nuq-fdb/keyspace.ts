@@ -134,6 +134,10 @@ export class NuqFdbKeyspace {
     return { begin, end: prefixEnd(begin) };
   }
 
+  unpack(key: Buffer): unknown[] {
+    return getFdb().tuple.unpack(key);
+  }
+
   // === Job records
   jobMeta(id: string): Buffer {
     return this.pack(["j", id, "m"]);
@@ -166,6 +170,12 @@ export class NuqFdbKeyspace {
   }
   teamActive(tid: string): Buffer {
     return this.pack(["t", tid, "active"]);
+  }
+  teamActiveIndex(tid: string): Buffer {
+    return this.pack(["ta", tid]);
+  }
+  teamActiveIndexRange() {
+    return this.packRange(["ta"]);
   }
   teamPendingCount(tid: string): Buffer {
     return this.pack(["t", tid, "pend"]);

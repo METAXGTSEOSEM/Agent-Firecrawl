@@ -28,6 +28,18 @@ export const MAX_STALLS = 9;
 export const COMPLETED_STANDALONE_RETENTION_MS = 60 * 60 * 1000;
 export const FAILED_STANDALONE_RETENTION_MS = 6 * 60 * 60 * 1000;
 
+export function bumpTeamActive(
+  tn: Transaction,
+  ks: NuqFdbKeyspace,
+  teamId: string,
+  delta: number,
+): void {
+  if (delta === 0) return;
+  const encoded = encodeI64(delta);
+  tn.add(ks.teamActive(teamId), encoded);
+  tn.add(ks.teamActiveIndex(teamId), encoded);
+}
+
 // Per-transaction-attempt context. uv makes versionstamp-suffixed keys unique
 // within one transaction; it resets naturally when doTn retries the closure.
 export type TxContext = { uv: number };
@@ -349,7 +361,7 @@ export async function releaseSlotsAndPromote(
     } else if (teamHead !== null) {
       promoteEntryToReady(tn, ks, teamHead, txc);
     } else {
-      tn.add(ks.teamActive(tid), MINUS_ONE);
+      bumpTeamActive(tn, ks, tid, -1);
     }
   }
 }
@@ -367,7 +379,7 @@ export async function admitThroughTeamGate(
   const limit = limitBuf ? decodeI64(limitBuf) : Infinity;
   const active = decodeI64(await tn.get(ks.teamActive(e.o)));
   if (active < limit) {
-    tn.add(ks.teamActive(e.o), ONE);
+    bumpTeamActive(tn, ks, e.o, 1);
     promoteEntryToReady(tn, ks, e, txc);
   } else {
     const loc = appendTeamPending(tn, ks, e);
