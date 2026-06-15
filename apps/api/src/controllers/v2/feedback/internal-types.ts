@@ -47,6 +47,8 @@ export type FeedbackRecordOptions = {
   windowExpiredMessage?: string;
   maxAgeSec?: number;
   dailyCapCredits?: number;
+  refundFeatureId?: string;
+  skipZdrPersistence?: boolean;
   source: "feedback" | "search_feedback";
 };
 

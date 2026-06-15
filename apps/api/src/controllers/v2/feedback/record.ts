@@ -1,7 +1,11 @@
 import { v7 as uuidv7 } from "uuid";
 import { config } from "../../../config";
 import { logger as _logger } from "../../../lib/logger";
-import { autumnService } from "../../../services/autumn/autumn.service";
+import { getScrapeZDR, getSearchZDR } from "../../../lib/zdr-helpers";
+import {
+  autumnService,
+  featureIdForBillingEndpoint,
+} from "../../../services/autumn/autumn.service";
 import { captureExceptionWithZdrCheck } from "../../../services/sentry";
 import {
   EndpointFeedbackErrorCode,
@@ -27,6 +31,7 @@ import { sumCreditsRefundedToday } from "./refund-totals";
 const PREVIEW_TEAM_ID = "3adefd26-77ec-5968-8dcf-c94b5630d1de";
 const POSTGRES_UNIQUE_VIOLATION = "23505";
 const LOOKUP_RACE_RETRY_MS = 250;
+const ZDR_FEEDBACK_ID = "00000000-0000-0000-0000-000000000000";
 
 function isPreviewTeam(teamId: string): boolean {
   return teamId === "preview" || teamId.startsWith("preview_");
@@ -51,6 +56,36 @@ function feedbackFailure(
       success: false,
       error,
       feedbackErrorCode: code,
+    },
+  };
+}
+
+function shouldSkipPersistenceForZdr(
+  req: RequestWithAuth<any, any, any>,
+  options: FeedbackRecordOptions,
+): boolean {
+  if (options.skipZdrPersistence === false) return false;
+
+  const searchZDR = getSearchZDR(req.acuc?.flags);
+  return (
+    getScrapeZDR(req.acuc?.flags) !== "disabled" ||
+    searchZDR === "allowed" ||
+    searchZDR === "forced-zdr" ||
+    searchZDR === "forced-anon"
+  );
+}
+
+function zdrFeedbackSuccess(
+  options: FeedbackRecordOptions,
+): FeedbackRecordResult {
+  return {
+    status: 200,
+    body: {
+      success: true,
+      feedbackId: ZDR_FEEDBACK_ID,
+      creditsRefunded: 0,
+      creditsRefundedToday: 0,
+      dailyRefundCap: dailyCapFor(options),
     },
   };
 }
@@ -193,6 +228,9 @@ async function refundCredits(params: {
     await autumnService.refundCredits({
       teamId: req.auth.team_id,
       value: cappedRefund,
+      featureId:
+        options.refundFeatureId ??
+        featureIdForBillingEndpoint(options.endpoint),
       properties: {
         source: options.source,
         endpoint: options.endpoint,
@@ -220,6 +258,11 @@ export async function recordEndpointFeedback(
     jobId: options.jobId,
     teamId: req.auth.team_id,
   });
+
+  if (shouldSkipPersistenceForZdr(req, options)) {
+    logger.info("Skipping feedback persistence for ZDR team");
+    return zdrFeedbackSuccess(options);
+  }
 
   const accessFailure = validateAccess(req, options, logger);
   if (accessFailure) return accessFailure;

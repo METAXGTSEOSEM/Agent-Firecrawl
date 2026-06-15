@@ -350,6 +350,25 @@ const jsonFormatWithOptions = z.strictObject({
 
 export type JsonFormatWithOptions = z.output<typeof jsonFormatWithOptions>;
 
+// "Deterministic JSON" — same shape as json mode, but extraction is performed by
+// reusable-json-mode (a cached, reusable JS extractor run in the code-sandbox)
+// rather than a per-request LLM call. Populates document.json like json mode.
+const deterministicJsonFormatWithOptions = z.strictObject({
+  type: z.literal("deterministicJson"),
+  schema: z
+    .any()
+    .optional()
+    .transform(val => normalizeSchemaForOpenAI(val))
+    .refine(val => validateSchemaForOpenAI(val), {
+      message: OPENAI_SCHEMA_ERROR_MESSAGE,
+    }),
+  prompt: z.string().max(10000).optional(),
+});
+
+type DeterministicJsonFormatWithOptions = z.output<
+  typeof deterministicJsonFormatWithOptions
+>;
+
 const changeTrackingFormatWithOptions = z.strictObject({
   type: z.literal("changeTracking"),
   prompt: z.string().optional(),
@@ -431,6 +450,7 @@ export type FormatObject =
   | { type: "images" }
   | { type: "summary" }
   | JsonFormatWithOptions
+  | DeterministicJsonFormatWithOptions
   | ChangeTrackingFormatWithOptions
   | ScreenshotFormatWithOptions
   | AttributesFormatWithOptions
@@ -439,8 +459,7 @@ export type FormatObject =
   | QueryFormatWithOptions
   | { type: "branding" }
   | { type: "audio" }
-  | { type: "video" }
-  | { type: "pii" };
+  | { type: "video" };
 
 const pdfModeSchema = z.enum(["fast", "auto", "ocr"]);
 
@@ -605,6 +624,7 @@ const baseScrapeOptions = z.strictObject({
           z.strictObject({ type: z.literal("images") }),
           z.strictObject({ type: z.literal("summary") }),
           jsonFormatWithOptions,
+          deterministicJsonFormatWithOptions,
           changeTrackingFormatWithOptions,
           screenshotFormatWithOptions,
           attributesFormatWithOptions,
@@ -614,7 +634,6 @@ const baseScrapeOptions = z.strictObject({
           queryFormatWithOptions,
           z.strictObject({ type: z.literal("audio") }),
           z.strictObject({ type: z.literal("video") }),
-          z.strictObject({ type: z.literal("pii") }),
         ])
         .array()
         .optional()
@@ -627,7 +646,14 @@ const baseScrapeOptions = z.strictObject({
       const hasChangeTracking = x.find(f => f.type === "changeTracking");
       const hasMarkdown = x.find(f => f.type === "markdown");
       return !hasChangeTracking || hasMarkdown;
-    }, "The changeTracking format requires the markdown format to be specified as well"),
+    }, "The changeTracking format requires the markdown format to be specified as well")
+    .refine(x => {
+      // Both json and deterministicJson populate the `json` field, so one would
+      // just clobber the other. Require choosing one.
+      const hasJson = x.some(f => f.type === "json");
+      const hasDeterministicJson = x.some(f => f.type === "deterministicJson");
+      return !(hasJson && hasDeterministicJson);
+    }, "Cannot specify both json and deterministicJson formats"),
   headers: z.record(z.string(), z.string()).optional(),
   includeTags: z
     .string()
@@ -1067,7 +1093,14 @@ export const crawlerOptions = z.strictObject({
   deduplicateSimilarURLs: z.boolean().prefault(true),
   ignoreQueryParameters: z.boolean().prefault(false),
   regexOnFullURL: z.boolean().prefault(false),
-  delay: z.number().positive().optional(),
+  delay: z
+    .number()
+    .positive()
+    .max(
+      60,
+      "The delay parameter is measured in seconds and cannot exceed 60 seconds.",
+    )
+    .optional(),
 });
 
 // export type CrawlerOptions = {
@@ -1152,58 +1185,6 @@ export const mapRequestSchema = strictWithMessage(mapRequestSchemaBase);
 export type MapRequest = z.infer<typeof mapRequestSchema>;
 export type MapRequestInput = z.input<typeof mapRequestSchema>;
 
-export type PIISource = "model" | "heuristics" | "unknown";
-
-export type PIISpan = {
-  start: number;
-  end: number;
-  // Unified entity bucket. Present when `kind` maps onto one of the public
-  // entity buckets; omitted when fire-privacy returned a recognizer kind we
-  // don't expose (e.g. ORGANIZATION, DATE_TIME). Spans without an entity
-  // are dropped under any `entities` allowlist.
-  entity?: RedactPIIEntity;
-  // Granular recognizer label from fire-privacy (e.g. PRIVATE_PERSON,
-  // EMAIL_ADDRESS, ACCOUNT_NUMBER). Useful for audit / debugging; prefer
-  // `entity` for taxonomy-level checks.
-  kind: string;
-  source: PIISource;
-  // Confidence in [0, 1] when fire-privacy returned a score. Omitted when
-  // the recognizer didn't supply one.
-  score?: number;
-};
-
-// `ok`      — redaction completed; redactedMarkdown is the result.
-// `skipped` — redaction was not performed; see `reason` for why.
-//             redactedMarkdown may be the original text or null.
-// `failed`  — redaction was attempted but did not produce a usable result;
-//             see `reason`. redactedMarkdown is null.
-type PIIStatus = "ok" | "skipped" | "failed";
-
-// Why redaction was skipped or failed. Always set when status !== "ok".
-//   empty_input         — no markdown to redact, or markdown was whitespace
-//   too_large           — input exceeded the redaction-side byte ceiling
-//   upstream_skipped    — fire-privacy reported model_status: "skipped"
-//   service_unavailable — fire-privacy returned 503
-//   timeout             — request exceeded the redaction timeout budget
-//   error               — any other failure (5xx, invalid JSON, network)
-export type PIIReason =
-  | "empty_input"
-  | "too_large"
-  | "upstream_skipped"
-  | "service_unavailable"
-  | "timeout"
-  | "error";
-
-export type PIIBlock = {
-  status: PIIStatus;
-  reason?: PIIReason;
-  redactedMarkdown: string | null;
-  spans: PIISpan[];
-  // Count of spans per public entity bucket. Spans whose `kind` doesn't
-  // map onto a bucket are not counted. Only non-zero entries are present.
-  counts: Partial<Record<RedactPIIEntity, number>>;
-};
-
 export type Document = {
   title?: string;
   description?: string;
@@ -1216,6 +1197,7 @@ export type Document = {
   screenshot?: string;
   audio?: string;
   video?: string;
+  videos?: VideoItem[];
   extract?: any;
   json?: any;
   summary?: string;
@@ -1223,7 +1205,6 @@ export type Document = {
   highlights?: string;
   branding?: BrandingProfile;
   warning?: string;
-  pii?: PIIBlock;
   attributes?: {
     selector: string;
     attribute: string;
@@ -1318,6 +1299,22 @@ export type Document = {
     description: string;
     url: string;
   };
+};
+
+export type VideoItem = {
+  url: string;
+  sourceURL: string;
+  source: string;
+  kind?: string;
+  provider?: string;
+  title?: string;
+  thumbnail?: string;
+  description?: string;
+  duration?: string;
+  mimeType?: string;
+  width?: number;
+  height?: number;
+  metadata?: Record<string, unknown>;
 };
 
 export type ErrorResponse = {
@@ -1427,6 +1424,7 @@ export type MapResponse =
   | ErrorResponse
   | {
       success: true;
+      id: string;
       links?: MapDocument[];
       warning?: string;
     };
@@ -1456,6 +1454,9 @@ export type CrawlStatusResponse =
       total: number;
       creditsUsed: number;
       expiresAt: string;
+      createdAt?: string;
+      completedAt?: string;
+      duration?: number;
       next?: string;
       data: Document[];
       warning?: string;
@@ -1468,6 +1469,9 @@ export type CrawlStatusResponse =
       total: number;
       creditsUsed: number;
       expiresAt: string;
+      createdAt?: string;
+      completedAt?: string;
+      duration?: number;
       data: Document[];
     };
 
@@ -1522,6 +1526,7 @@ export type TeamFlags = {
   debugBranding?: boolean;
   maxBrowserSessions?: number;
   researchBeta?: boolean;
+  highlightsBeta?: boolean;
 } | null;
 
 interface RequestWithMaybeACUC<
@@ -1902,6 +1907,10 @@ export const searchRequestSchema = z
     timeout: z.int().positive().finite().prefault(60000),
     ignoreInvalidURLs: z.boolean().optional().prefault(false),
     asyncScraping: z.boolean().optional().prefault(false),
+    // Experimental: replace each result's snippet with query-relevant
+    // highlights pulled from our index (last 30 days), out-of-line from
+    // scrapeURL. Falls back to the provider snippet when the URL isn't indexed.
+    highlights: z.boolean().optional().prefault(false),
     __searchPreviewToken: z.string().optional(),
     scrapeOptions: baseScrapeOptions
       .extend({
@@ -2122,6 +2131,8 @@ export const searchFeedbackSchema = z
         case "bad":
           return hasMissing || hasSuggestions;
       }
+
+      return false;
     },
     {
       message:
@@ -2226,9 +2237,37 @@ export const endpointFeedbackSchema = z
       message:
         "Feedback must include at least one substantive signal: issues, note, sources, missingContent, querySuggestions, expected/actual, url, or pageNumbers.",
     },
+  )
+  .refine(
+    data => {
+      if (data.endpoint !== "search") return true;
+
+      const hasSources = (data.valuableSources?.length ?? 0) > 0;
+      const hasMissing = (data.missingContent?.length ?? 0) > 0;
+      const hasSuggestions =
+        !!data.querySuggestions && data.querySuggestions.length > 0;
+
+      switch (data.rating) {
+        case "good":
+          return hasSources;
+        case "partial":
+          return hasSources || hasMissing;
+        case "bad":
+          return hasMissing || hasSuggestions;
+      }
+
+      return false;
+    },
+    {
+      message:
+        "Search feedback must be substantive. 'good' requires at least one valuableSources entry; 'partial' requires valuableSources or at least one missingContent entry; 'bad' requires at least one missingContent entry or querySuggestions.",
+    },
   );
 
 export type EndpointFeedbackRequest = z.infer<typeof endpointFeedbackSchema>;
+export type EndpointFeedbackRequestInput = z.input<
+  typeof endpointFeedbackSchema
+>;
 
 export type EndpointFeedbackErrorCode =
   | "JOB_NOT_FOUND"

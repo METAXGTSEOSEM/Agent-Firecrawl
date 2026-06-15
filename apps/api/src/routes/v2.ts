@@ -2,6 +2,7 @@ import express from "express";
 import multer from "multer";
 import { config } from "../config";
 import { RateLimiterMode } from "../types";
+import { SEARCH_CREDITS_FEATURE_ID } from "../services/autumn/autumn.service";
 import expressWs from "express-ws";
 import { searchController } from "../controllers/v2/search";
 import { feedbackController } from "../controllers/v2/feedback/controller";
@@ -238,7 +239,7 @@ v2Router.post(
   "/search",
   authMiddleware(RateLimiterMode.Search),
   countryCheck,
-  checkCreditsMiddleware(),
+  checkCreditsMiddleware(undefined, SEARCH_CREDITS_FEATURE_ID),
   blocklistMiddleware,
   wrap(searchController),
 );

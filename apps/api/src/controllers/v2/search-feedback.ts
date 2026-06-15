@@ -2,6 +2,7 @@ import { Response } from "express";
 import { z } from "zod";
 import { config } from "../../config";
 import { logger as _logger } from "../../lib/logger";
+import { SEARCH_CREDITS_FEATURE_ID } from "../../services/autumn/autumn.service";
 import {
   RequestWithAuth,
   SearchFeedbackRequest,
@@ -55,6 +56,7 @@ export async function searchFeedbackController(
     windowExpiredMessage: `Search feedback must be submitted within ${config.SEARCH_FEEDBACK_MAX_AGE_SEC} seconds of the search.`,
     maxAgeSec: config.SEARCH_FEEDBACK_MAX_AGE_SEC,
     dailyCapCredits: config.SEARCH_FEEDBACK_DAILY_CAP_CREDITS,
+    refundFeatureId: SEARCH_CREDITS_FEATURE_ID,
     source: "search_feedback",
   });
 
