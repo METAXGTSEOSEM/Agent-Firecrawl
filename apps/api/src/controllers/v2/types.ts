@@ -2099,6 +2099,29 @@ const missingContentEntrySchema = z.strictObject({
   description: z.string().trim().max(2000).optional(),
 });
 
+function hasSubstantiveSearchFeedback(data: {
+  rating: "good" | "bad" | "partial";
+  valuableSources?: unknown[];
+  missingContent?: unknown[];
+  querySuggestions?: string;
+}): boolean {
+  const hasSources = (data.valuableSources?.length ?? 0) > 0;
+  const hasMissing = (data.missingContent?.length ?? 0) > 0;
+  const hasSuggestions =
+    !!data.querySuggestions && data.querySuggestions.length > 0;
+
+  switch (data.rating) {
+    case "good":
+      return hasSources;
+    case "partial":
+      return hasSources || hasMissing;
+    case "bad":
+      return hasMissing || hasSuggestions;
+  }
+
+  return false;
+}
+
 export const searchFeedbackSchema = z
   .strictObject({
     rating: z.enum(["good", "bad", "partial"]),
@@ -2116,29 +2139,10 @@ export const searchFeedbackSchema = z
     origin: z.string().optional().prefault("api"),
     integration: integrationSchema.optional().transform(val => val || null),
   })
-  .refine(
-    data => {
-      const hasSources = (data.valuableSources?.length ?? 0) > 0;
-      const hasMissing = (data.missingContent?.length ?? 0) > 0;
-      const hasSuggestions =
-        !!data.querySuggestions && data.querySuggestions.length > 0;
-
-      switch (data.rating) {
-        case "good":
-          return hasSources;
-        case "partial":
-          return hasSources || hasMissing;
-        case "bad":
-          return hasMissing || hasSuggestions;
-      }
-
-      return false;
-    },
-    {
-      message:
-        "Feedback must be substantive. 'good' requires at least one valuableSources entry; 'partial' requires valuableSources or at least one missingContent entry; 'bad' requires at least one missingContent entry or querySuggestions.",
-    },
-  );
+  .refine(data => hasSubstantiveSearchFeedback(data), {
+    message:
+      "Feedback must be substantive. 'good' requires at least one valuableSources entry; 'partial' requires valuableSources or at least one missingContent entry; 'bad' requires at least one missingContent entry or querySuggestions.",
+  });
 
 export type SearchFeedbackRequest = z.infer<typeof searchFeedbackSchema>;
 export type SearchFeedbackRequestInput = z.input<typeof searchFeedbackSchema>;
@@ -2245,25 +2249,7 @@ export const endpointFeedbackSchema = z
     },
   )
   .refine(
-    data => {
-      if (data.endpoint !== "search") return true;
-
-      const hasSources = (data.valuableSources?.length ?? 0) > 0;
-      const hasMissing = (data.missingContent?.length ?? 0) > 0;
-      const hasSuggestions =
-        !!data.querySuggestions && data.querySuggestions.length > 0;
-
-      switch (data.rating) {
-        case "good":
-          return hasSources;
-        case "partial":
-          return hasSources || hasMissing;
-        case "bad":
-          return hasMissing || hasSuggestions;
-      }
-
-      return false;
-    },
+    data => data.endpoint !== "search" || hasSubstantiveSearchFeedback(data),
     {
       message:
         "Search feedback must be substantive. 'good' requires at least one valuableSources entry; 'partial' requires valuableSources or at least one missingContent entry; 'bad' requires at least one missingContent entry or querySuggestions.",

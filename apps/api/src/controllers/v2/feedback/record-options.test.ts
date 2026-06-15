@@ -1,5 +1,6 @@
 import { config } from "../../../config";
 import { SEARCH_CREDITS_FEATURE_ID } from "../../../services/autumn/autumn.service";
+import { endpointFeedbackSchema, searchFeedbackSchema } from "../types";
 import {
   endpointFeedbackRecordOptions,
   searchFeedbackRecordOptions,
@@ -75,5 +76,43 @@ describe("feedback record options", () => {
     expect(options.dailyCapCredits).toBeUndefined();
     expect(options.refundFeatureId).toBeUndefined();
     expect(options.source).toBe("feedback");
+  });
+});
+
+describe("feedback schema", () => {
+  it("keeps generic search feedback on the search-specific rating rules", () => {
+    expect(
+      searchFeedbackSchema.safeParse({
+        rating: "good",
+        valuableSources: [{ url: "https://firecrawl.dev/" }],
+      }).success,
+    ).toBe(true);
+
+    expect(
+      endpointFeedbackSchema.safeParse({
+        endpoint: "search",
+        jobId: "01933161-0000-7000-8000-000000000001",
+        rating: "good",
+        valuableSources: [{ url: "https://firecrawl.dev/" }],
+      }).success,
+    ).toBe(true);
+
+    expect(
+      endpointFeedbackSchema.safeParse({
+        endpoint: "search",
+        jobId: "01933161-0000-7000-8000-000000000001",
+        rating: "good",
+        note: "A note alone should not satisfy search feedback rules.",
+      }).success,
+    ).toBe(false);
+
+    expect(
+      endpointFeedbackSchema.safeParse({
+        endpoint: "map",
+        jobId: "01933161-0000-7000-8000-000000000001",
+        rating: "good",
+        note: "Generic endpoint feedback remains valid with a note.",
+      }).success,
+    ).toBe(true);
   });
 });
