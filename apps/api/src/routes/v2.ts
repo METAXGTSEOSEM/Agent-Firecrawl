@@ -236,7 +236,7 @@ v2Router.use(requestTimingMiddleware("v2"));
 
 v2Router.post(
   "/search",
-  authMiddleware(RateLimiterMode.Search),
+  authMiddleware(RateLimiterMode.Search, { allowKeyless: true }),
   countryCheck,
   checkCreditsMiddleware(undefined, SEARCH_CREDITS_FEATURE_ID),
   blocklistMiddleware,
@@ -262,7 +262,7 @@ v2Router.post(
 
 v2Router.post(
   "/scrape",
-  authMiddleware(RateLimiterMode.Scrape),
+  authMiddleware(RateLimiterMode.Scrape, { allowKeyless: true }),
   countryCheck,
   checkCreditsMiddleware(1),
   blocklistMiddleware,
@@ -278,14 +278,14 @@ v2Router.get(
 
 v2Router.post(
   "/scrape/:jobId/interact",
-  authMiddleware(RateLimiterMode.BrowserExecute),
+  authMiddleware(RateLimiterMode.BrowserExecute, { allowKeyless: true }),
   validateJobIdParam,
   wrap(scrapeInteractController),
 );
 
 v2Router.delete(
   "/scrape/:jobId/interact",
-  authMiddleware(RateLimiterMode.BrowserExecute),
+  authMiddleware(RateLimiterMode.BrowserExecute, { allowKeyless: true }),
   validateJobIdParam,
   wrap(scrapeStopInteractiveBrowserController),
 );

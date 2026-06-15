@@ -8,6 +8,13 @@ import { withAuth } from "../lib/withAuth";
 import { getAgentSponsorStatus } from "../services/agent-sponsor";
 import { getRedisConnection } from "../services/queue-service";
 import { getRateLimiter } from "../services/rate-limiter";
+import {
+  consumeKeylessRequest,
+  isKeylessConfigured,
+  isKeylessIpEligible,
+  keylessSurface,
+  keylessTeamId,
+} from "../lib/keyless";
 import { deleteKey, getValue, setValue } from "../services/redis";
 import { redlock } from "../services/redlock";
 import { eq } from "drizzle-orm";
@@ -462,17 +469,132 @@ export async function clearACUCTeam(team_id: string): Promise<void> {
   await getRedisConnection().sadd("billed_teams", team_id);
 }
 
+const KEYLESS_REQUESTS_MESSAGE = `You've reached today's limit of free, unauthenticated requests to Firecrawl. Sign up for a free API key at https://firecrawl.dev for 1000 more credits and higher rate limits for free. (If you're an agent, you can also use https://firecrawl.dev/auth.md)`;
+
+const KEYLESS_CREDITS_MESSAGE = `You've reached today's limit of free, unauthenticated credits for Firecrawl. Sign up for a free API key at https://firecrawl.dev for 1000 more credits and higher rate limits for free. (If you're an agent, you can also use https://firecrawl.dev/auth.md)`;
+
+const KEYLESS_ENDPOINT_NOT_AVAILABLE_MESSAGE = `This endpoint is not available without an API key. Sign up for a free API key at https://firecrawl.dev for 1000 more credits and higher rate limits for free. (If you're an agent, you can also use https://firecrawl.dev/auth.md)`;
+
+/**
+ * Keyless free tier: official MCP/CLI/SDK clients can call scrape, search, and
+ * interact with no API key. `origin`/`integration` are client-set and spoofable,
+ * so they're only a soft UX gate — the real abuse controls are the per-IP daily
+ * request + credit caps plus the `keyless/consume` canonical log emitted here.
+ * Always returns an AuthResponse — handles every no-API-key request.
+ */
+async function handleKeylessAuth(
+  req,
+  mode: RateLimiterMode | undefined,
+  allowKeyless: boolean | undefined,
+): Promise<AuthResponse> {
+  const unauthorized: AuthResponse = {
+    success: false,
+    error: "Unauthorized",
+    status: 401,
+  };
+
+  // The keyless tier is off unless BOTH limits are configured (even to 0). When
+  // unconfigured we behave exactly as before — a generic 401 — and don't reveal
+  // that the tier exists.
+  if (!isKeylessConfigured()) return unauthorized;
+
+  // Configured, but this endpoint isn't part of the keyless tier: tell the user
+  // they need a key (with the signup nudge) rather than a bare "Unauthorized".
+  if (!allowKeyless) {
+    return {
+      success: false,
+      error: KEYLESS_ENDPOINT_NOT_AVAILABLE_MESSAGE,
+      status: 401,
+    };
+  }
+
+  const origin = req.body?.origin;
+  const integration = req.body?.integration;
+  const surface = keylessSurface(origin, integration);
+  if (!surface) return unauthorized;
+
+  // Key on the real client IP. A trusted proxy (e.g. the hosted MCP) may
+  // forward the end-user's IP via x-firecrawl-keyless-ip, authenticated with a
+  // shared secret — without the secret the header is ignored, so direct callers
+  // can't spoof their IP to dodge the per-IP cap.
+  let ip = req.ip ?? req.socket?.remoteAddress ?? "unknown";
+  if (
+    config.KEYLESS_PROXY_SECRET &&
+    req.headers["x-firecrawl-keyless-secret"] === config.KEYLESS_PROXY_SECRET
+  ) {
+    const forwarded = req.headers["x-firecrawl-keyless-ip"];
+    if (typeof forwarded === "string" && forwarded.trim()) {
+      ip = forwarded.trim();
+    }
+  }
+
+  // Deny keyless to IPv6 clients — addresses are too cheap to rotate for a
+  // per-IP cap to mean anything. They fall through to the normal 401.
+  if (!isKeylessIpEligible(ip)) return unauthorized;
+
+  const teamId = keylessTeamId(ip);
+  const modeLabel =
+    mode === RateLimiterMode.Search
+      ? "search"
+      : mode === RateLimiterMode.BrowserExecute
+        ? "interact"
+        : "scrape";
+
+  const result = await consumeKeylessRequest(ip);
+  const baseLog = {
+    canonicalLog: "keyless/consume",
+    ip,
+    origin,
+    integration,
+    surface,
+    mode: modeLabel,
+    teamId,
+    requestsUsed: result.requestsUsed,
+    creditsUsed: result.creditsUsed,
+  };
+
+  if (!result.ok) {
+    logger.warn("Keyless request blocked", {
+      ...baseLog,
+      blocked: true,
+      reason: result.reason,
+    });
+    return {
+      success: false,
+      error:
+        result.reason === "credits"
+          ? KEYLESS_CREDITS_MESSAGE
+          : KEYLESS_REQUESTS_MESSAGE,
+      status: 429,
+    };
+  }
+
+  logger.debug("Keyless request consumed", { ...baseLog, blocked: false });
+
+  // Tag as a preview team so billing (autumn isPreviewTeam) and GCS persistence
+  // are skipped automatically; mockPreviewACUC supplies concurrency 2 + credits.
+  // Actual credits consumed are charged to the IP's daily budget after the
+  // request completes (see chargeKeylessCredits).
+  return {
+    success: true,
+    team_id: teamId,
+    org_id: null,
+    chunk: mockPreviewACUC(teamId, false),
+  };
+}
+
 export async function authenticateUser(
   req,
   res,
   mode?: RateLimiterMode,
+  options?: { allowKeyless?: boolean },
 ): Promise<AuthResponse> {
   return withAuth(supaAuthenticateUser, {
     success: true,
     chunk: null,
     team_id: "bypass",
     org_id: null,
-  })(req, res, mode);
+  })(req, res, mode, options);
 }
 
 /**
@@ -517,6 +639,7 @@ async function supaAuthenticateUser(
   req,
   res,
   mode?: RateLimiterMode,
+  options?: { allowKeyless?: boolean },
 ): Promise<AuthResponse> {
   const authHeader =
     req.headers.authorization ??
@@ -524,7 +647,7 @@ async function supaAuthenticateUser(
       ? `Bearer ${req.headers["sec-websocket-protocol"]}`
       : null);
   if (!authHeader) {
-    return { success: false, error: "Unauthorized", status: 401 };
+    return handleKeylessAuth(req, mode, options?.allowKeyless);
   }
   const token = authHeader.split(" ")[1]; // Extract the token from "Bearer <token>"
   if (!token) {

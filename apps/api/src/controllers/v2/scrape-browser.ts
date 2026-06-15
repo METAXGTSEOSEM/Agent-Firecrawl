@@ -45,6 +45,7 @@ import { sanitizeUrlForTrace } from "../../lib/scrape-interact/langsmith";
 import { getScrapeZDR } from "../../lib/zdr-helpers";
 import { RequestWithAuth, ScrapeOptions } from "./types";
 import { billTeam } from "../../services/billing/credit_billing";
+import { chargeKeylessCredits } from "../../lib/keyless";
 import { enqueueBrowserSessionActivity } from "../../lib/browser-session-activity";
 import { logRequest } from "../../services/logging/log_job";
 import { integrationSchema } from "../../utils/integration";
@@ -456,6 +457,10 @@ export async function scrapeStopInteractiveBrowserController(
       durationMs,
     });
   });
+
+  // Charge the keyless free tier's per-IP daily credit budget (no-op for
+  // non-keyless teams).
+  chargeKeylessCredits(req.auth.team_id, creditsBilled).catch(() => {});
 
   logger.info("Browser session destroyed", {
     sessionDurationMs: durationMs,

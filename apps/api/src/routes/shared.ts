@@ -196,6 +196,7 @@ export function checkCreditsMiddleware(
 
 export function authMiddleware(
   rateLimiterMode: RateLimiterMode,
+  options: { allowKeyless?: boolean } = {},
 ): (req: RequestWithMaybeAuth, res: Response, next: NextFunction) => void {
   return (req, res, next) => {
     (async () => {
@@ -211,7 +212,12 @@ export function authMiddleware(
       //   currentRateLimiterMode = RateLimiterMode.ScrapeAgentPreview;
       // }
 
-      const auth = await authenticateUser(req, res, currentRateLimiterMode);
+      const auth = await authenticateUser(
+        req,
+        res,
+        currentRateLimiterMode,
+        options,
+      );
 
       if (!auth.success) {
         if (!res.headersSent) {
