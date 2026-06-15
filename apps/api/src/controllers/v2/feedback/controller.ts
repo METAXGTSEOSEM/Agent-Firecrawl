@@ -7,6 +7,7 @@ import {
   endpointFeedbackSchema,
 } from "../types";
 import { recordEndpointFeedback } from "./record";
+import { endpointFeedbackRecordOptions } from "./record-options";
 import { toFeedbackInput } from "./request-input";
 
 export async function feedbackController(
@@ -28,12 +29,14 @@ export async function feedbackController(
     throw error;
   }
 
-  const result = await recordEndpointFeedback(req, {
-    endpoint: parsedBody.endpoint,
-    jobId: parsedBody.jobId,
-    feedback: toFeedbackInput(parsedBody),
-    source: "feedback",
-  });
+  const result = await recordEndpointFeedback(
+    req,
+    endpointFeedbackRecordOptions({
+      endpoint: parsedBody.endpoint,
+      jobId: parsedBody.jobId,
+      feedback: toFeedbackInput(parsedBody),
+    }),
+  );
 
   return res.status(result.status).json(result.body);
 }

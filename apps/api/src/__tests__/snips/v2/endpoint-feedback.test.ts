@@ -10,6 +10,9 @@ import {
   scrapeTimeout,
   searchRawFull,
 } from "./lib";
+import { and, eq } from "drizzle-orm";
+import { db } from "../../../db/connection";
+import * as schema from "../../../db/schema";
 
 let identity: Identity;
 let secondaryIdentity: Identity;
@@ -112,4 +115,50 @@ describeIf(TEST_PRODUCTION)("Generic endpoint feedback tests", () => {
     expect(failed.body.success).toBe(false);
     expect(String(failed.body.error).toLowerCase()).toContain("invalid");
   }, 90000);
+
+  it("rejects generic search feedback for failed search jobs", async () => {
+    const searchId =
+      "00000000-0000-7000-8000-" +
+      Math.floor(Math.random() * 1e12)
+        .toString(16)
+        .padStart(12, "0");
+
+    await db.insert(schema.searches).values({
+      id: searchId,
+      request_id: searchId,
+      query: "failed generic feedback search",
+      team_id: identity.teamId,
+      options: { query: "failed generic feedback search" },
+      time_taken: 0,
+      credits_cost: 2,
+      is_successful: false,
+      error: "Synthetic failed search for generic feedback policy coverage.",
+      num_results: 0,
+    });
+
+    try {
+      const failed = await endpointFeedbackRaw(
+        {
+          endpoint: "search",
+          jobId: searchId,
+          rating: "bad",
+          missingContent: [{ topic: "Results" }],
+        },
+        identity,
+      );
+
+      expect(failed.statusCode).toBe(409);
+      expect(failed.body.success).toBe(false);
+      expect(failed.body.feedbackErrorCode).toBe("SEARCH_FAILED");
+    } finally {
+      await db
+        .delete(schema.searches)
+        .where(
+          and(
+            eq(schema.searches.id, searchId),
+            eq(schema.searches.team_id, identity.teamId),
+          ),
+        );
+    }
+  }, 30000);
 });
