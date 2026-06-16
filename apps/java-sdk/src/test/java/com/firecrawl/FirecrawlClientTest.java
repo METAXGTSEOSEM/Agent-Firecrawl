@@ -259,29 +259,25 @@ class FirecrawlClientTest {
     void testDocumentDeserializesVideos() throws Exception {
         ObjectMapper objectMapper = new ObjectMapper()
                 .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        String json = """
-                {
-                    "markdown": "# Video",
-                    "video": "https://storage.googleapis.com/firecrawl/video.mp4",
-                    "videos": [
-                        {
-                            "url": "https://cdn.example.com/product.mp4",
-                            "sourceURL": "https://example.com/product",
-                            "source": "script",
-                            "kind": "file",
-                            "provider": "cdn.example.com",
-                            "title": "Product video",
-                            "thumbnail": "https://cdn.example.com/poster.jpg",
-                            "description": "Product overview",
-                            "duration": "PT45S",
-                            "mimeType": "video/mp4",
-                            "width": 1920,
-                            "height": 1080,
-                            "metadata": { "resourceType": "Media" }
-                        }
-                    ]
-                }
-                """;
+        String json = "{"
+                + "\"markdown\":\"# Video\","
+                + "\"video\":\"https://storage.googleapis.com/firecrawl/video.mp4\","
+                + "\"videos\":[{"
+                + "\"url\":\"https://cdn.example.com/product.mp4\","
+                + "\"sourceURL\":\"https://example.com/product\","
+                + "\"source\":\"script\","
+                + "\"kind\":\"file\","
+                + "\"provider\":\"cdn.example.com\","
+                + "\"title\":\"Product video\","
+                + "\"thumbnail\":\"https://cdn.example.com/poster.jpg\","
+                + "\"description\":\"Product overview\","
+                + "\"duration\":\"PT45S\","
+                + "\"mimeType\":\"video/mp4\","
+                + "\"width\":1920,"
+                + "\"height\":1080,"
+                + "\"metadata\":{\"resourceType\":\"Media\"}"
+                + "}]"
+                + "}";
 
         Document doc = objectMapper.readValue(json, Document.class);
 
