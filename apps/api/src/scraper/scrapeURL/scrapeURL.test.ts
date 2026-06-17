@@ -8,9 +8,10 @@ import { scrapeURL } from ".";
 import { scrapeOptions } from "../../controllers/v2/types";
 import { Engine } from "./engines";
 import { CostTracking } from "../../lib/cost-tracking";
+import { inferCountryFromUrl } from "./engines/fire-engine";
 
 // Mock parseMarkdown but delegate to real implementation for other tests
-vi.mock("../../lib/html-to-markdown", async (importOriginal) => {
+vi.mock("../../lib/html-to-markdown", async importOriginal => {
   const actual =
     await importOriginal<typeof import("../../lib/html-to-markdown")>();
   return {
@@ -563,4 +564,58 @@ describe("Standalone scrapeURL tests", () => {
       expect(out.document.metadata.error).toBeUndefined();
     }
   }, 30000);
+});
+
+describe("inferCountryFromUrl", () => {
+  it("detects ccTLD .ae", () => {
+    expect(inferCountryFromUrl("https://example.ae/page")).toBe("ae");
+  });
+
+  it("detects ccTLD .de", () => {
+    expect(inferCountryFromUrl("https://amazon.de/product")).toBe("de");
+  });
+
+  it("detects ccTLD .fr", () => {
+    expect(inferCountryFromUrl("https://site.fr/path")).toBe("fr");
+  });
+
+  it("detects ccTLD .jp", () => {
+    expect(inferCountryFromUrl("https://example.jp/page")).toBe("jp");
+  });
+
+  it("detects compound ccTLD .co.uk as gb", () => {
+    expect(inferCountryFromUrl("https://amazon.co.uk/product")).toBe("gb");
+  });
+
+  it("detects compound ccTLD .com.au", () => {
+    expect(inferCountryFromUrl("https://example.com.au/page")).toBe("au");
+  });
+
+  it("returns undefined for .com", () => {
+    expect(inferCountryFromUrl("https://example.com/page")).toBeUndefined();
+  });
+
+  it("returns undefined for .org", () => {
+    expect(inferCountryFromUrl("https://example.org")).toBeUndefined();
+  });
+
+  it("skips generic-use ccTLDs (.io)", () => {
+    expect(inferCountryFromUrl("https://app.io")).toBeUndefined();
+  });
+
+  it("skips generic-use ccTLDs (.ai)", () => {
+    expect(inferCountryFromUrl("https://company.ai")).toBeUndefined();
+  });
+
+  it("skips generic-use ccTLDs (.tv)", () => {
+    expect(inferCountryFromUrl("https://stream.tv")).toBeUndefined();
+  });
+
+  it("handles invalid URL gracefully", () => {
+    expect(inferCountryFromUrl("not-a-url")).toBeUndefined();
+  });
+
+  it("handles URL with port", () => {
+    expect(inferCountryFromUrl("https://example.de:8080/path")).toBe("de");
+  });
 });

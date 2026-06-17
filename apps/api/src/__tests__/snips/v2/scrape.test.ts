@@ -1331,6 +1331,26 @@ describe("Scrape tests", () => {
 
       //   expect(res.metadata.proxyUsed).toBe("stealth");
       // }, scrapeTimeout * 2);
+
+      it.concurrent(
+        "enhanced proxy with screenshot returns screenshot",
+        async () => {
+          const res = await scrape(
+            {
+              url: base,
+              proxy: "enhanced",
+              formats: ["screenshot", "markdown"],
+            },
+            identity,
+          );
+
+          expect(res.screenshot).toBeDefined();
+          expect(typeof res.screenshot).toBe("string");
+          expect(res.markdown).toBeDefined();
+          expect(res.metadata.proxyUsed).toBe("stealth");
+        },
+        scrapeTimeout * 2,
+      );
     });
 
     describe("PDF (f-e dependent)", () => {

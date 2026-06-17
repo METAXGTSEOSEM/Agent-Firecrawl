@@ -39,9 +39,73 @@ import { getBrandingScript } from "./brandingScript";
 import { abTestFireEngine } from "../../../../services/ab-test";
 import { scheduleABComparison } from "../../../../services/ab-test-comparison";
 import { createHash } from "node:crypto";
+import { countries } from "../../../../lib/validate-country";
 
 /** Default wait (ms) before running the branding script when user did not set waitFor. Lets the page settle so DOM/images are ready and reduces JS errors. */
 const BRANDING_DEFAULT_WAIT_MS = 2000;
+
+/** ccTLDs used generically and not reliable for geolocation inference. */
+const GENERIC_USE_CCTLDS = new Set([
+  "io",
+  "ai",
+  "tv",
+  "me",
+  "co",
+  "to",
+  "gg",
+  "fm",
+  "ly",
+  "cc",
+  "ws",
+  "sh",
+  "im",
+  "la",
+  "nu",
+  "tk",
+  "gl",
+  "ms",
+  "sc",
+  "vc",
+  "ag",
+  "bz",
+  "dj",
+]);
+
+/**
+ * Infer ISO 3166-1 alpha-2 country code from a URL's ccTLD.
+ * Returns lowercase country code (e.g. "ae", "de") or undefined.
+ */
+export function inferCountryFromUrl(url: string): string | undefined {
+  try {
+    const hostname = new URL(url).hostname.toLowerCase();
+    const parts = hostname.split(".");
+    if (parts.length < 2) return undefined;
+
+    const tld = parts[parts.length - 1];
+
+    // Skip generic TLDs
+    if (
+      tld.length !== 2 ||
+      ["com", "org", "net", "edu", "gov", "mil", "int"].includes(tld)
+    ) {
+      return undefined;
+    }
+
+    // Skip ccTLDs commonly used as generic domains
+    if (GENERIC_USE_CCTLDS.has(tld)) return undefined;
+
+    const upper = tld.toUpperCase();
+
+    // Special case: .uk → GB
+    if (upper === "UK") return "gb";
+
+    if (upper in countries) return tld;
+
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 // This function does not take `Meta` on purpose. It may not access any
 // meta values to construct the request -- that must be done by the
@@ -341,7 +405,8 @@ export async function scrapeURLWithFireEngineChromeCDP(
 
     const shouldAllowMedia =
       hasFormatOfType(meta.options.formats, "branding") ||
-      shouldRunYoutubePostprocessor;
+      shouldRunYoutubePostprocessor ||
+      meta.featureFlags.has("stealthProxy");
 
     const request: FireEngineScrapeRequestCommon &
       FireEngineScrapeRequestChromeCDP = {
@@ -357,7 +422,11 @@ export async function scrapeURLWithFireEngineChromeCDP(
           }
         : {}),
       priority: meta.internalOptions.priority,
-      geolocation: meta.options.location,
+      geolocation:
+        meta.options.location ??
+        (inferCountryFromUrl(meta.url)
+          ? { country: inferCountryFromUrl(meta.url)! }
+          : undefined),
       mobile: meta.options.mobile,
       timeout: meta.abort.scrapeTimeout() ?? 300000,
       disableSmartWaitCache: meta.internalOptions.disableSmartWaitCache,
@@ -494,7 +563,11 @@ export async function scrapeURLWithFireEngineTLSClient(
       priority: meta.internalOptions.priority,
 
       atsv: meta.internalOptions.atsv,
-      geolocation: meta.options.location,
+      geolocation:
+        meta.options.location ??
+        (inferCountryFromUrl(meta.url)
+          ? { country: inferCountryFromUrl(meta.url)! }
+          : undefined),
       disableJsDom: meta.internalOptions.v0DisableJsDom,
       mobileProxy: meta.featureFlags.has("stealthProxy"),
 
