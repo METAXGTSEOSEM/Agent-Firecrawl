@@ -10,6 +10,7 @@ import { hasFormatOfType } from "./format-utils";
 import { TransportableError } from "./error";
 import { FeatureFlag } from "../scraper/scrapeURL/engines";
 import { isUrlBlocked } from "../scraper/WebScraper/utils/blocklist";
+import { getProfessionalNetworkSuccessCredits } from "./enrich/professional-network";
 
 const creditsPerPDFPage = 1;
 const stealthProxyCostBonus = 4;
@@ -53,6 +54,27 @@ export async function calculateCreditsToBeBilled(
     }
 
     return creditsToBeBilled;
+  }
+
+  const professionalNetworkCredits = [
+    document.metadata?.url,
+    document.metadata?.sourceURL,
+  ]
+    .filter((url): url is string => typeof url === "string")
+    .map(url =>
+      getProfessionalNetworkSuccessCredits({
+        url,
+        formats: options.formats,
+        actions: options.actions,
+        zeroDataRetention: internalOptions.zeroDataRetention,
+        lockdown: options.lockdown,
+        flags,
+        statusCode: document.metadata?.statusCode,
+      }),
+    )
+    .find((credits): credits is number => credits !== null);
+  if (professionalNetworkCredits !== undefined) {
+    return professionalNetworkCredits;
   }
 
   let creditsToBeBilled = 1; // Assuming 1 credit per document

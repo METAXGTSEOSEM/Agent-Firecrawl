@@ -157,6 +157,9 @@ const configSchema = z.object({
   FIRE_ENGINE_AB_RATE: z.coerce.number().optional(),
   FIRE_ENGINE_AB_MODE: z.enum(["mirror", "split"]).default("mirror"),
 
+  // Enrich
+  ENRICH_URL_HOSTS: delimitedList(",").optional(),
+
   // Indexer
   INDEXER_RABBITMQ_URL: z.string().optional(),
   INDEXER_TRAFFIC_SHARE: z.coerce.number().default(0.0),

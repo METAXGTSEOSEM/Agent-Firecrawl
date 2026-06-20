@@ -131,6 +131,7 @@ export type EngineScrapeResult = {
 
   html: string;
   markdown?: string;
+  json?: unknown;
   statusCode: number;
   error?: string;
 

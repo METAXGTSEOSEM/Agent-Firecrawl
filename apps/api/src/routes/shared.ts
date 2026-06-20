@@ -28,6 +28,8 @@ import {
   autumnService,
   CREDITS_FEATURE_ID,
 } from "../services/autumn/autumn.service";
+import { canBypassProfessionalNetworkBlocklist } from "../lib/enrich/professional-network";
+import { getScrapeZDR } from "../lib/zdr-helpers";
 
 export function checkCreditsMiddleware(
   _minimum?: number,
@@ -273,8 +275,24 @@ export function blocklistMiddleware(
   res: Response,
   next: NextFunction,
 ) {
+  const zeroDataRetention =
+    getScrapeZDR(req.acuc?.flags) === "forced" ||
+    req.body?.zeroDataRetention === true ||
+    req.body?.lockdown === true;
+  const canUseEnrich =
+    typeof req.body.url === "string" &&
+    canBypassProfessionalNetworkBlocklist({
+      url: req.body.url,
+      formats: req.body.formats,
+      actions: req.body.actions,
+      zeroDataRetention,
+      lockdown: req.body.lockdown,
+      flags: req.acuc?.flags ?? null,
+    });
+
   if (
     typeof req.body.url === "string" &&
+    !canUseEnrich &&
     isUrlBlocked(req.body.url, req.acuc?.flags ?? null, {
       team_id: req.acuc?.team_id ?? null,
       origin: typeof req.body.origin === "string" ? req.body.origin : null,

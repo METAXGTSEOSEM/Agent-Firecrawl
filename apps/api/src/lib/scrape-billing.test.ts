@@ -1,6 +1,44 @@
 import { calculateCreditsToBeBilled } from "./scrape-billing";
+import { config } from "../config";
+
+const originalConfig = {
+  FIRE_ENGINE_BETA_URL: config.FIRE_ENGINE_BETA_URL,
+  ENRICH_URL_HOSTS: config.ENRICH_URL_HOSTS,
+};
 
 describe("calculateCreditsToBeBilled", () => {
+  afterEach(() => {
+    config.FIRE_ENGINE_BETA_URL = originalConfig.FIRE_ENGINE_BETA_URL;
+    config.ENRICH_URL_HOSTS = originalConfig.ENRICH_URL_HOSTS;
+  });
+
+  it("bills enabled configured-host successes at 15 credits", async () => {
+    config.FIRE_ENGINE_BETA_URL = "https://fire-engine.example";
+    config.ENRICH_URL_HOSTS = ["profiles.example"];
+
+    const credits = await calculateCreditsToBeBilled(
+      {
+        formats: [{ type: "markdown" }],
+      } as any,
+      {
+        teamId: "team-id",
+      },
+      {
+        metadata: {
+          statusCode: 200,
+          url: "https://profiles.example/in/example-person",
+          proxyUsed: "basic",
+        },
+      } as any,
+      {
+        totalCost: 0,
+      } as any,
+      { enrichBeta: true } as any,
+    );
+
+    expect(credits).toBe(15);
+  });
+
   it("bills X/Twitter scrapes at 30 credits", async () => {
     const credits = await calculateCreditsToBeBilled(
       {
